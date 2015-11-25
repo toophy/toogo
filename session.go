@@ -5,6 +5,14 @@ import (
 	"github.com/toophy/doors/help"
 )
 
+// 单独日志消息
+type msgListen struct {
+	msg  string // 消息
+	name string // 别名
+	id   uint   // 网络会话ID
+	info string // 描述信息
+}
+
 // 消息节点(list节点)
 type Msg_node struct {
 	Len   uint32 // 包长度
@@ -71,9 +79,9 @@ func (this *Session) runReader() {
 		if ret == nil {
 			// 校验 data.Token, 拆包, 解密, 分别处理消息
 			// 解密后, data大小不会有多大变化(只会变小)
-			PostThreadMsg(this.toMailId, data)
+			PostThreadMsg(this.toMailId, &data)
 		} else {
-			onRet("read failed", c.Name, c.Id, ret.Error())
+			PostThreadMsg(tid, msgListen{"read failed", c.Name, c.Id, ret.Error()})
 			break
 		}
 	}

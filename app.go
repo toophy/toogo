@@ -97,13 +97,6 @@ func (this *App) delSession(id int) {
 	}
 }
 
-type msgListen struct {
-	msg  string // 消息
-	name string // 别名
-	id   uint   // 网络会话ID
-	info string // 描述信息
-}
-
 // 建立一个侦听服务
 // tid        : 关联线程
 // name       : 会话别名
