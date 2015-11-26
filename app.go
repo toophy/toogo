@@ -3,6 +3,7 @@ package toogo
 import (
 	"net"
 	"sync"
+	"time"
 )
 
 // 这个函数, 后期优化, 需要使用 automic 进行等待写入, 主要是强占目标线程会比较厉害, 但是写入操作非常快
@@ -29,11 +30,33 @@ type App struct {
 	sessionNames  map[string]*Session // 网络会话池(别名)
 	sessionMutex  sync.RWMutex        // 网络会话池读写锁
 	config        toogoConfig         // 配置信息
+	wg            sync.WaitGroup      // App退出信号组
 }
 
 // 应用初始化
 func Run(m IThread) {
 	ToogoApp.master = m
+	if ToogoApp.master != nil {
+		ToogoApp.master.Run_thread()
+	}
+
+	// Listen
+	// Connect
+	// ...
+
+	ToogoApp.wg.Wait()
+	<-time.After(3 * time.Second)
+	println("quit " + ToogoApp.config.AppName)
+}
+
+// 进入线程
+func EnterThread() {
+	ToogoApp.wg.Add(1)
+}
+
+// 离开线程
+func LeaveThread() {
+	ToogoApp.wg.Done()
 }
 
 // 通过Id获取会话对象

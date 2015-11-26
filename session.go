@@ -60,6 +60,8 @@ func (this *Session) Run() {
 }
 
 func (this *Session) runReader() {
+	EnterThread()
+
 	// 捕捉异常
 	defer func() {
 		if r := recover(); r != nil {
@@ -72,6 +74,7 @@ func (this *Session) runReader() {
 		}
 
 		CloseSession(this.toMailId, this)
+		LeaveThread()
 	}()
 
 	for {
@@ -88,6 +91,7 @@ func (this *Session) runReader() {
 	}
 
 	CloseSession(this.toMailId, this)
+	LeaveThread()
 }
 
 // 读取网络消息
@@ -128,6 +132,8 @@ func (this *Session) readConnData(conn *net.TCPConn) (msg Msg_node, ret error) {
 }
 
 func (this *Session) runWriter() {
+	EnterThread()
+
 	// 捕捉异常
 	defer func() {
 		if r := recover(); r != nil {
@@ -140,6 +146,7 @@ func (this *Session) runWriter() {
 		}
 
 		CloseSession(this.toMailId, this)
+		LeaveThread()
 	}()
 
 	for {
@@ -168,6 +175,7 @@ func (this *Session) runWriter() {
 	}
 
 	CloseSession(this.toMailId, this)
+	LeaveThread()
 }
 
 func (this *Session) PostOneMsg(d interface{}) {

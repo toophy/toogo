@@ -149,6 +149,22 @@ func (this *Thread) Run_thread() {
 	// 处理线程间接收消息, 分配到水表定时器
 	// 执行水表定时器
 	go func() {
+		EnterThread()
+
+		// 捕捉异常
+		defer func() {
+			if r := recover(); r != nil {
+				switch r.(type) {
+				case error:
+					println("Thread::Run_thread:" + r.(error).Error())
+				case string:
+					println("Thread::Run_thread:" + r.(string))
+				}
+			}
+			// 需要把 panic 信息 写入文件中
+
+			LeaveThread()
+		}()
 
 		this.start_time = time.Now().UnixNano()
 		this.last_time = this.start_time
@@ -209,6 +225,7 @@ func (this *Thread) Run_thread() {
 			}
 		}
 
+		LeaveThread()
 	}()
 }
 
