@@ -1,40 +1,39 @@
 package toogo
 
 import (
-	"github.com/toophy/doors/help"
 	"sync"
 )
 
 // Go程间消息存放处
 type ThreadMsgPool struct {
-	lock      []sync.Mutex  // silk消息池有一个独立的锁
-	cond      []sync.Cond   // 条件锁
-	header    []DListNode   // silk消息池
-	count     uint          // Mutex锁邮箱
-	free_lock sync.Mutex    // 空闲列表锁
-	frees     map[uint]uint // 空闲列表
+	lock      []sync.Mutex      // silk消息池有一个独立的锁
+	cond      []sync.Cond       // 条件锁
+	header    []DListNode       // silk消息池
+	count     uint32            // 以上3个数组的容量
+	free_lock sync.Mutex        // 邮箱空闲列表锁
+	frees     map[uint32]uint32 // 邮箱空闲列表
 }
 
 // 初始化
-func (this *ThreadMsgPool) Init(count uint) {
+func (this *ThreadMsgPool) Init(count uint32) {
 	this.count = count
 	this.lock = make([]sync.Mutex, this.count)
 	this.cond = make([]sync.Cond, this.count)
 	this.header = make([]DListNode, this.count)
 
-	for i := uint(0); i < this.count; i++ {
+	for i := uint32(0); i < this.count; i++ {
 		this.cond[i].L = &this.lock[i]
 		this.header[i].Init(nil)
 	}
 
-	this.frees = make(map[uint]uint, this.count)
-	for i := uint(0); i < this.count; i++ {
+	this.frees = make(map[uint32]uint32, this.count)
+	for i := uint32(0); i < this.count; i++ {
 		this.frees[i] = i
 	}
 }
 
 // 获取一个
-func (this *ThreadMsgPool) AllocId() (uint, bool) {
+func (this *ThreadMsgPool) AllocId() (uint32, bool) {
 	this.free_lock.Lock()
 	defer this.free_lock.Unlock()
 
@@ -49,7 +48,7 @@ func (this *ThreadMsgPool) AllocId() (uint, bool) {
 }
 
 // 释放一个
-func (this *ThreadMsgPool) FreeId(id uint) {
+func (this *ThreadMsgPool) FreeId(id uint32) {
 	this.free_lock.Lock()
 	defer this.free_lock.Unlock()
 
@@ -59,7 +58,7 @@ func (this *ThreadMsgPool) FreeId(id uint) {
 }
 
 // 投递Go程间消息, PostMsg和GetMsg是一对
-func (this *ThreadMsgPool) PostMsg(tid uint, e *DListNode) bool {
+func (this *ThreadMsgPool) PostMsg(tid uint32, e *DListNode) bool {
 	if e != nil && !e.IsEmpty() && tid < this.count {
 		this.lock[tid].Lock()
 		defer this.lock[tid].Unlock()
@@ -85,7 +84,7 @@ func (this *ThreadMsgPool) PostMsg(tid uint, e *DListNode) bool {
 }
 
 // 获取Go程间消息, PostMsg和GetMsg是一对
-func (this *ThreadMsgPool) GetMsg(tid uint, e *DListNode) bool {
+func (this *ThreadMsgPool) GetMsg(tid uint32, e *DListNode) bool {
 	if e != nil && tid < this.count {
 		this.lock[tid].Lock()
 		defer this.lock[tid].Unlock()
@@ -113,7 +112,7 @@ func (this *ThreadMsgPool) GetMsg(tid uint, e *DListNode) bool {
 }
 
 // 投递Go程间消息, PushMsg 和 WaitMsg 是一对, 投递和等待消息
-func (this *ThreadMsgPool) PushOneMsg(tid uint, e *DListNode) bool {
+func (this *ThreadMsgPool) PushOneMsg(tid uint32, e *DListNode) bool {
 
 	if e != nil && tid < this.count {
 		this.lock[tid].Lock()
@@ -137,7 +136,7 @@ func (this *ThreadMsgPool) PushOneMsg(tid uint, e *DListNode) bool {
 }
 
 // 投递Go程间消息, PushMsg 和 WaitMsg 是一对, 投递和等待消息
-func (this *ThreadMsgPool) PushMsg(tid uint, e *DListNode) bool {
+func (this *ThreadMsgPool) PushMsg(tid uint32, e *DListNode) bool {
 
 	if e != nil && !e.IsEmpty() && tid < this.count {
 		this.lock[tid].Lock()
@@ -166,7 +165,7 @@ func (this *ThreadMsgPool) PushMsg(tid uint, e *DListNode) bool {
 }
 
 // 等待Go程间消息, PushMsg 和 WaitMsg 是一对, 投递和等待消息
-func (this *ThreadMsgPool) WaitMsg(tid uint, e *DListNode) bool {
+func (this *ThreadMsgPool) WaitMsg(tid uint32, e *DListNode) bool {
 	if e != nil && tid >= 0 && tid < this.count {
 		this.cond[tid].L.Lock()
 		defer this.cond[tid].L.Unlock()

@@ -5,51 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
-)
-
-const (
-	LogDebugLevel = 0                // 日志等级 : 调试信息
-	LogInfoLevel  = 1                // 日志等级 : 普通信息
-	LogWarnLevel  = 2                // 日志等级 : 警告信息
-	LogErrorLevel = 3                // 日志等级 : 错误信息
-	LogFatalLevel = 4                // 日志等级 : 致命信息
-	LogMaxLevel   = 5                // 日志最大等级
-	LogLimitLevel = LogInfoLevel     // 显示这个等级之上的日志(控制台)
-	LogBuffMax    = 20 * 1024 * 1024 // 日志缓冲
-)
-
-const (
-	Tid_world    = iota // 世界线程
-	Tid_screen_1        // 场景线程1
-	Tid_screen_2        // 场景线程2
-	Tid_screen_3        // 场景线程3
-	Tid_screen_4        // 场景线程4
-	Tid_screen_5        // 场景线程5
-	Tid_screen_6        // 场景线程6
-	Tid_screen_7        // 场景线程7
-	Tid_screen_8        // 场景线程8
-	Tid_screen_9        // 场景线程9
-	Tid_net_1           // 网络线程1
-	Tid_net_2           // 网络线程2
-	Tid_net_3           // 网络线程3
-	Tid_db_1            // 数据库线程1
-	Tid_db_2            // 数据库线程2
-	Tid_db_3            // 数据库线程3
-	Tid_last            // 最终线程ID
-)
-
-const (
-	Evt_gap_time  = 16     // 心跳时间(毫秒)
-	Evt_gap_bit   = 4      // 心跳时间对应得移位(快速运算使用)
-	Evt_lay1_time = 160000 // 第一层事件池最大支持时间(毫秒)
-)
-
-const (
-	UpdateCurrTimeCount = 32 // 刷新时间戳变更上线
 )
 
 // 线程接口
@@ -80,7 +38,7 @@ type IThread interface {
 
 // 线程基本功能
 type Thread struct {
-	id                  int32                 // Id号
+	id                  uint32                // Id号
 	name                string                // 线程名称
 	heart_time          int64                 // 心跳时间(毫秒)
 	start_time          int64                 // 线程开启时间戳
@@ -105,11 +63,12 @@ type Thread struct {
 	log_Header          [LogMaxLevel]string   // 各级别日志头
 	log_FileBuff        bytes.Buffer          // 日志总缓冲, Tid_world才会使用
 	log_FileHandle      *os.File              // 日志文件, Tid_world才会使用
+	log_FlushTime       int64                 // 日志文件最后写入时间
 }
 
 // 初始化线程(必须调用)
 // usage : Init_thread(Tid_world, "主线程", 100)
-func (this *Thread) Init_thread(self IThread, id int32, name string, heart_time int64, lay1_time uint64) error {
+func (this *Thread) Init_thread(self IThread, id uint32, name string, heart_time int64, lay1_time uint64) error {
 	if id < Tid_world || id >= Tid_last {
 		return errors.New("[E] 线程ID超出范围 [Tid_world,Tid_last]")
 	}
@@ -158,23 +117,6 @@ func (this *Thread) Init_thread(self IThread, id int32, name string, heart_time 
 		this.evt_threadMsg[i].Init(nil)
 	}
 
-	// 节点初始化
-	this.node_free.Init(nil)
-	this.node_free.SrcTid = this.id
-
-	this.node_pool = make([]DListNode, 200000)
-	for i := 0; i < 200000; i++ {
-		this.node_pool[i].Init(nil)
-		this.node_pool[i].SrcTid = this.id
-		this.addFreeDlinkNode(&this.node_pool[i])
-	}
-
-	for i := 0; i < Tid_last; i++ {
-		this.node_preFree[i] = new(DListNode)
-		this.node_preFree[i].Init(nil)
-		this.node_preFree[i].SrcTid = this.id
-	}
-
 	// 日志初始化
 	this.log_Buffer = make([]byte, LogBuffMax)
 	this.log_BufferLen = 0
@@ -216,19 +158,7 @@ func (this *Thread) Run_thread() {
 		this.log_TimeString = time.Now().Format("15:04:05")
 		this.MakeLogHeader()
 
-		// 处理文件
-		if this.is_world_thread() {
-			evt := &Event_flush_log{}
-			evt.Init("", 300)
-			this.PostEvent(evt)
-		}
-
 		this.self.on_first_run()
-
-		//
-		evtReleaseNode := &Event_pre_release_dlinknode{}
-		evtReleaseNode.Init("", 100)
-		this.PostEvent(evtReleaseNode)
 
 		for {
 
@@ -241,6 +171,15 @@ func (this *Thread) Run_thread() {
 			// 设置当前时间戳(毫秒)
 			this.get_curr_time_count = 1
 			this.curr_time = this.last_time / int64(time.Millisecond)
+
+			// 刷新缓冲日志到文件
+			if this.is_world_thread() && this.log_FlushTime < this.curr_time {
+				this.log_FlushTime = this.curr_time + ToogoApp.config.LogFlushTime
+				if this.log_FileBuff.Len() > 0 {
+					this.log_FileHandle.Write(this.log_FileBuff.Bytes())
+					this.log_FileBuff.Reset()
+				}
+			}
 
 			this.self.on_pre_run()
 
@@ -274,7 +213,7 @@ func (this *Thread) Run_thread() {
 }
 
 // 返回线程编号
-func (this *Thread) Get_thread_id() int32 {
+func (this *Thread) Get_thread_id() uint32 {
 	return this.id
 }
 
@@ -355,7 +294,7 @@ func (this *Thread) PostEvent(a IEvent) bool {
 }
 
 // 投递线程间消息
-func (this *Thread) PostThreadMsg(tid int32, a IEvent) bool {
+func (this *Thread) PostThreadMsg(tid uint32, a IEvent) bool {
 	if tid == this.Get_thread_id() {
 		this.LogWarn("PostThreadMsg dont post to self")
 		return false
@@ -363,8 +302,7 @@ func (this *Thread) PostThreadMsg(tid int32, a IEvent) bool {
 	if tid >= Tid_world && tid < Tid_last {
 		header := this.evt_threadMsg[tid]
 
-		//n := &DListNode{}
-		n := this.newDlinkNode()
+		n := new(DListNode)
 		if n == nil {
 			this.LogError("PostThreadMsg newDlinkNode failed")
 			return false
@@ -428,17 +366,17 @@ func (this *Thread) runThreadMsg() {
 func (this *Thread) sendThreadMsg() {
 
 	// 发送日志到日志线程
-	if !this.is_world_thread() && this.log_BufferLen > 0 {
-		evt := &Event_thread_log{}
-		evt.Init("", 100)
-		evt.Data = string(this.log_Buffer[:this.log_BufferLen])
-		this.PostThreadMsg(Tid_world, evt)
+	// if !this.is_world_thread() && this.log_BufferLen > 0 {
+	// 	evt := &Event_thread_log{}
+	// 	evt.Init("", 100)
+	// 	evt.Data = string(this.log_Buffer[:this.log_BufferLen])
+	// 	this.PostThreadMsg(Tid_world, evt)
 
-		copy(this.log_Buffer[:0], "")
-		this.log_BufferLen = 0
-	}
+	// 	copy(this.log_Buffer[:0], "")
+	// 	this.log_BufferLen = 0
+	// }
 
-	for i := int32(Tid_world); i < Tid_last; i++ {
+	for i := uint32(Tid_world); i < Tid_last; i++ {
 		if !this.evt_threadMsg[i].IsEmpty() {
 			GetThreadMsgs().PostMsg(i, this.evt_threadMsg[i])
 		}
@@ -570,29 +508,6 @@ func (this *Thread) Add_log(d string) {
 	if this.is_world_thread() {
 		this.log_FileBuff.WriteString(d)
 	}
-}
-
-// 刷新缓冲日志到文件
-func (this *Thread) Flush_log() {
-	if this.is_world_thread() && this.log_FileBuff.Len() > 0 {
-		this.log_FileHandle.Write(this.log_FileBuff.Bytes())
-		this.log_FileBuff.Reset()
-	}
-}
-
-// 节点池 : 新建节点
-func (this *Thread) newDlinkNode() *DListNode {
-
-	if this.node_free.IsEmpty() {
-		this.LogFatal("newDlinkNode nil(%d)", this.node_alloc_count)
-		return nil
-	}
-
-	this.node_alloc_count++
-	free := this.node_free.Next
-	free.Pop()
-
-	return free
 }
 
 // 获取当前时间戳(毫秒)
