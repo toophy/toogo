@@ -12,15 +12,15 @@ import (
 
 // 线程接口
 type IThread interface {
-	Init_thread(IThread, int32, string, int64, uint64) error // 初始化线程
-	Run_thread()                                             // 运行线程
-	Get_thread_id() int32                                    // 获取线程ID
-	Get_thread_name() string                                 // 获取线程名称
-	pre_close_thread()                                       // -- 只允许thread调用 : 预备关闭线程
-	on_first_run()                                           // -- 只允许thread调用 : 首次运行(在 on_run 前面)
-	on_pre_run()                                             // -- 只允许thread调用 : 线程最先运行部分
-	on_run()                                                 // -- 只允许thread调用 : 线程运行部分
-	on_end()                                                 // -- 只允许thread调用 : 线程结束回调
+	Init_thread(IThread, uint32, string, int64, uint64) error // 初始化线程
+	Run_thread()                                              // 运行线程
+	Get_thread_id() uint32                                    // 获取线程ID
+	Get_thread_name() string                                  // 获取线程名称
+	Pre_close_thread()                                        // -- 只允许thread调用 : 预备关闭线程
+	On_first_run()                                            // -- 只允许thread调用 : 首次运行(在 on_run 前面)
+	On_pre_run()                                              // -- 只允许thread调用 : 线程最先运行部分
+	On_run()                                                  // -- 只允许thread调用 : 线程运行部分
+	On_end()                                                  // -- 只允许thread调用 : 线程结束回调
 
 	PostEvent(a IEvent) bool     // 投递定时器事件
 	GetEvent(name string) IEvent // 通过别名获取事件
@@ -31,10 +31,22 @@ type IThread interface {
 	LogWarn(f string, v ...interface{})  // 线程日志 : 警告[W]级别日志
 	LogError(f string, v ...interface{}) // 线程日志 : 错误[E]级别日志
 	LogFatal(f string, v ...interface{}) // 线程日志 : 致命[F]级别日志
-
-	sendThreadFreeNode()           // 发送线程间回收
-	releaseDlinkNode(d *DListNode) // 释放节点
 }
+
+const (
+	evt_gap_time        = 16     // 心跳时间(毫秒)
+	evt_gap_bit         = 4      // 心跳时间对应得移位(快速运算使用)
+	evt_lay1_time       = 160000 // 第一层事件池最大支持时间(毫秒)
+	updateCurrTimeCount = 32     // 刷新时间戳变更上线
+	logDebugLevel       = 0      // 日志等级 : 调试信息
+	logInfoLevel        = 1      // 日志等级 : 普通信息
+	logWarnLevel        = 2      // 日志等级 : 警告信息
+	logErrorLevel       = 3      // 日志等级 : 错误信息
+	logFatalLevel       = 4      // 日志等级 : 致命信息
+	logMaxLevel         = 5      // 日志最大等级
+	Tid_world           = 1      // 世界线程
+	Tid_last            = 16     // 最后一条重要线程
+)
 
 // 线程基本功能
 type Thread struct {
@@ -60,7 +72,7 @@ type Thread struct {
 	log_Buffer          []byte                // 线程日志缓冲
 	log_BufferLen       int                   // 线程日志缓冲长度
 	log_TimeString      string                // 时间格式(精确到秒2015.08.13 16:33:00)
-	log_Header          [LogMaxLevel]string   // 各级别日志头
+	log_Header          [logMaxLevel]string   // 各级别日志头
 	log_FileBuff        bytes.Buffer          // 日志总缓冲, Tid_world才会使用
 	log_FileHandle      *os.File              // 日志文件, Tid_world才会使用
 	log_FlushTime       int64                 // 日志文件最后写入时间
@@ -76,7 +88,7 @@ func (this *Thread) Init_thread(self IThread, id uint32, name string, heart_time
 		return errors.New("[E] 线程自身指针不能为nil")
 	}
 
-	if lay1_time < Evt_gap_time || lay1_time > Evt_lay1_time {
+	if lay1_time < evt_gap_time || lay1_time > evt_lay1_time {
 		return errors.New("[E] 第一层支持16毫秒到160000毫秒")
 	}
 
@@ -99,7 +111,7 @@ func (this *Thread) Init_thread(self IThread, id uint32, name string, heart_time
 	this.first_run = true
 
 	// 初始化事件池
-	this.evt_lay1Size = lay1_time >> Evt_gap_bit
+	this.evt_lay1Size = lay1_time >> evt_gap_bit
 	this.evt_lay1Cursor = 0
 	this.evt_currRunCount = 1
 	this.evt_lastRunCount = this.evt_currRunCount
@@ -118,26 +130,26 @@ func (this *Thread) Init_thread(self IThread, id uint32, name string, heart_time
 	}
 
 	// 日志初始化
-	this.log_Buffer = make([]byte, LogBuffMax)
+	this.log_Buffer = make([]byte, ToogoApp.config.LogBuffMax)
 	this.log_BufferLen = 0
 
 	this.log_TimeString = time.Now().Format("15:04:05")
 	this.MakeLogHeader()
 
 	if this.is_world_thread() {
-		this.log_FileBuff.Grow(LogBuffSize)
+		this.log_FileBuff.Grow(ToogoApp.config.LogFileBuffSize)
 
-		if !IsExist(LogFileName) {
-			os.Create(LogFileName)
+		if !IsExist(ToogoApp.config.LogFileName) {
+			os.Create(ToogoApp.config.LogFileName)
 		}
-		file, err := os.OpenFile(LogFileName, os.O_RDWR, os.ModePerm)
+		file, err := os.OpenFile(ToogoApp.config.LogFileName, os.O_RDWR, os.ModePerm)
 		if err != nil {
 			return err
 		}
 		this.log_FileHandle = file
 		this.log_FileHandle.Seek(0, 2)
 		// 第一条日志
-		this.LogDebug("\n          盘古游戏服务器启动\n")
+		this.LogDebug("\n          服务器{%s}启动\n", ToogoApp.config.AppName)
 	}
 
 	return nil
@@ -148,8 +160,9 @@ func (this *Thread) Run_thread() {
 	// 计算心跳误差值, 决定心跳滴答(小数), heart_time, last_time, heart_rate
 	// 处理线程间接收消息, 分配到水表定时器
 	// 执行水表定时器
+	EnterThread()
 	go func() {
-		EnterThread()
+		defer LeaveThread()
 
 		// 捕捉异常
 		defer func() {
@@ -162,8 +175,6 @@ func (this *Thread) Run_thread() {
 				}
 			}
 			// 需要把 panic 信息 写入文件中
-
-			LeaveThread()
 		}()
 
 		this.start_time = time.Now().UnixNano()
@@ -174,7 +185,7 @@ func (this *Thread) Run_thread() {
 		this.log_TimeString = time.Now().Format("15:04:05")
 		this.MakeLogHeader()
 
-		this.self.on_first_run()
+		this.self.On_first_run()
 
 		for {
 
@@ -197,11 +208,11 @@ func (this *Thread) Run_thread() {
 				}
 			}
 
-			this.self.on_pre_run()
+			this.self.On_pre_run()
 
 			this.runThreadMsg()
 			this.runEvents()
-			this.self.on_run()
+			this.self.On_run()
 
 			this.sendThreadMsg()
 
@@ -217,15 +228,13 @@ func (this *Thread) Run_thread() {
 
 			if this.pre_stop {
 				// 是否有需要释放的对象?
-				this.self.on_end()
+				this.self.On_end()
 				if this.is_world_thread() {
 					this.log_FileHandle.Close()
 				}
 				break
 			}
 		}
-
-		LeaveThread()
 	}()
 }
 
@@ -245,7 +254,7 @@ func (this *Thread) is_world_thread() bool {
 }
 
 // 预备关闭线程
-func (this *Thread) pre_close_thread() {
+func (this *Thread) Pre_close_thread() {
 	this.pre_stop = true
 }
 
@@ -263,7 +272,7 @@ func (this *Thread) PostEvent(a IEvent) bool {
 	}
 
 	// 计算放在那一层
-	pos := (a.GetTouchTime() + Evt_gap_time - 1) >> Evt_gap_bit
+	pos := (a.GetTouchTime() + evt_gap_time - 1) >> evt_gap_bit
 	if pos < 0 {
 		pos = 1
 	}
@@ -404,7 +413,7 @@ func (this *Thread) sendThreadMsg() {
 func (this *Thread) runEvents() {
 	all_time := (this.last_time - this.start_time) / int64(time.Millisecond)
 
-	all_count := uint64((all_time + Evt_gap_time - 1) >> Evt_gap_bit)
+	all_count := uint64((all_time + evt_gap_time - 1) >> evt_gap_bit)
 
 	for i := this.evt_lastRunCount; i <= all_count; i++ {
 		// 执行第一层事件
@@ -456,7 +465,7 @@ func (this *Thread) PrintAll() {
 		第一层池容量:%d
 		第一层游标:%d
 		运行次数%d
-		`, Evt_gap_time, Evt_gap_bit, this.evt_lay1Size, this.evt_lay1Cursor, this.evt_currRunCount)
+		`, evt_gap_time, evt_gap_bit, this.evt_lay1Size, this.evt_lay1Cursor, this.evt_currRunCount)
 
 	for k, v := range this.evt_names {
 		fmt.Println(k, v)
@@ -466,41 +475,41 @@ func (this *Thread) PrintAll() {
 // 线程日志 : 生成日志头
 func (this *Thread) MakeLogHeader() {
 	id_str := strconv.Itoa(int(this.Get_thread_id()))
-	this.log_Header[LogDebugLevel] = this.log_TimeString + " [D] " + id_str + " "
-	this.log_Header[LogInfoLevel] = this.log_TimeString + " [I] " + id_str + " "
-	this.log_Header[LogWarnLevel] = this.log_TimeString + " [W] " + id_str + " "
-	this.log_Header[LogErrorLevel] = this.log_TimeString + " [E] " + id_str + " "
-	this.log_Header[LogFatalLevel] = this.log_TimeString + " [F] " + id_str + " "
+	this.log_Header[logDebugLevel] = this.log_TimeString + " [D] " + id_str + " "
+	this.log_Header[logInfoLevel] = this.log_TimeString + " [I] " + id_str + " "
+	this.log_Header[logWarnLevel] = this.log_TimeString + " [W] " + id_str + " "
+	this.log_Header[logErrorLevel] = this.log_TimeString + " [E] " + id_str + " "
+	this.log_Header[logFatalLevel] = this.log_TimeString + " [F] " + id_str + " "
 }
 
 // 线程日志 : 调试[D]级别日志
 func (this *Thread) LogDebug(f string, v ...interface{}) {
-	this.LogBase(LogDebugLevel, fmt.Sprintf(f, v...))
+	this.LogBase(logDebugLevel, fmt.Sprintf(f, v...))
 }
 
 // 线程日志 : 信息[I]级别日志
 func (this *Thread) LogInfo(f string, v ...interface{}) {
-	this.LogBase(LogInfoLevel, fmt.Sprintf(f, v...))
+	this.LogBase(logInfoLevel, fmt.Sprintf(f, v...))
 }
 
 // 线程日志 : 警告[W]级别日志
 func (this *Thread) LogWarn(f string, v ...interface{}) {
-	this.LogBase(LogWarnLevel, fmt.Sprintf(f, v...))
+	this.LogBase(logWarnLevel, fmt.Sprintf(f, v...))
 }
 
 // 线程日志 : 错误[E]级别日志
 func (this *Thread) LogError(f string, v ...interface{}) {
-	this.LogBase(LogErrorLevel, fmt.Sprintf(f, v...))
+	this.LogBase(logErrorLevel, fmt.Sprintf(f, v...))
 }
 
 // 线程日志 : 致命[F]级别日志
 func (this *Thread) LogFatal(f string, v ...interface{}) {
-	this.LogBase(LogFatalLevel, fmt.Sprintf(f, v...))
+	this.LogBase(logFatalLevel, fmt.Sprintf(f, v...))
 }
 
 // 线程日志 : 手动分级日志
 func (this *Thread) LogBase(level int, info string) {
-	if level >= LogDebugLevel && level < LogMaxLevel {
+	if level >= logDebugLevel && level < logMaxLevel {
 		s := this.log_Header[level] + info
 		s = strings.Replace(s, "\n", "\n"+this.log_Header[level], -1) + "\n"
 
@@ -512,7 +521,7 @@ func (this *Thread) LogBase(level int, info string) {
 			this.log_BufferLen += s_len
 		}
 
-		if level >= LogLimitLevel {
+		if level >= ToogoApp.config.LogLimitLevel {
 			fmt.Print(s)
 		}
 	} else {
@@ -530,7 +539,7 @@ func (this *Thread) Add_log(d string) {
 // 获取当前时间戳(毫秒)
 func (this *Thread) GetCurrTime() int64 {
 	this.get_curr_time_count++
-	if this.get_curr_time_count > UpdateCurrTimeCount {
+	if this.get_curr_time_count > updateCurrTimeCount {
 		this.get_curr_time_count = 1
 		this.curr_time = time.Now().UnixNano() / int64(time.Millisecond)
 	}

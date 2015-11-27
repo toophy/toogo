@@ -31,7 +31,7 @@ import (
 )
 
 var (
-	DEFAULT_SECTION = "default"   // default section means if some ini items not in a section, make them in default section,
+	dEFAULT_SECTION = "default"   // default section means if some ini items not in a section, make them in default section,
 	bNumComment     = []byte{'#'} // number signal
 	bSemComment     = []byte{';'} // semicolon signal
 	bEmpty          = []byte{}
@@ -103,7 +103,7 @@ func (ini *IniConfig) parseFile(name string) (*IniConfigContainer, error) {
 			buf.ReadByte()
 		}
 	}
-	section := DEFAULT_SECTION
+	section := dEFAULT_SECTION
 	for {
 		line, _, err := buf.ReadLine()
 		if err == io.EOF {
@@ -327,7 +327,7 @@ func (c *IniConfigContainer) SaveConfigFile(filename string) (err error) {
 
 	buf := bytes.NewBuffer(nil)
 	// Save default section at first place
-	if dt, ok := c.data[DEFAULT_SECTION]; ok {
+	if dt, ok := c.data[dEFAULT_SECTION]; ok {
 		for key, val := range dt {
 			if key != " " {
 				// Write key comments.
@@ -351,7 +351,7 @@ func (c *IniConfigContainer) SaveConfigFile(filename string) (err error) {
 	}
 	// Save named sections
 	for section, dt := range c.data {
-		if section != DEFAULT_SECTION {
+		if section != dEFAULT_SECTION {
 			// Write section comments.
 			if v, ok := c.sectionComment[section]; ok {
 				if _, err = buf.WriteString(string(bNumComment) + v + lineBreak); err != nil {
@@ -412,7 +412,7 @@ func (c *IniConfigContainer) Set(key, value string) error {
 		section = sectionKey[0]
 		k = sectionKey[1]
 	} else {
-		section = DEFAULT_SECTION
+		section = dEFAULT_SECTION
 		k = sectionKey[0]
 	}
 
@@ -447,7 +447,7 @@ func (c *IniConfigContainer) getdata(key string) string {
 		section = sectionKey[0]
 		k = sectionKey[1]
 	} else {
-		section = DEFAULT_SECTION
+		section = dEFAULT_SECTION
 		k = sectionKey[0]
 	}
 	if v, ok := c.data[section]; ok {

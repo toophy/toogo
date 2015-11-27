@@ -5,7 +5,7 @@ import (
 )
 
 //
-//
+// 事件
 //-------------------------------------------------------
 type IEvent interface {
 	Init(name string, t uint64)      // 初始化(name可以为空, t是触发时间)
@@ -21,11 +21,11 @@ type IEvent interface {
 }
 
 const (
-	Evt_node_count = 2
+	evt_node_count = 2
 )
 
 type Evt_base struct {
-	Nodes      [Evt_node_count]*DListNode
+	Nodes      [evt_node_count]*DListNode
 	Name       string // 名称
 	Touch_time uint64 // 定时器触发时间戳
 }
@@ -40,7 +40,7 @@ func (this *Evt_base) GetName() string {
 }
 
 func (this *Evt_base) AddNode(n *DListNode) bool {
-	for i := 0; i < Evt_node_count; i++ {
+	for i := 0; i < evt_node_count; i++ {
 		if this.Nodes[i] == nil {
 			this.Nodes[i] = n
 			return true
@@ -51,13 +51,13 @@ func (this *Evt_base) AddNode(n *DListNode) bool {
 
 func (this *Evt_base) Destroy() {
 	this.Pop()
-	for i := 0; i < Evt_node_count; i++ {
+	for i := 0; i < evt_node_count; i++ {
 		this.Nodes[i] = nil
 	}
 }
 
 func (this *Evt_base) Pop() {
-	for i := 0; i < Evt_node_count; i++ {
+	for i := 0; i < evt_node_count; i++ {
 		if this.Nodes[i] != nil {
 			this.Nodes[i].Pop()
 		}
@@ -81,7 +81,7 @@ func (this *Evt_base) PrintSelf() {
 }
 
 //
-//
+// 事件宿主对象
 //-------------------------------------------------------
 type EventObj struct {
 	NodeObj DListNode

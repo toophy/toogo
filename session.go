@@ -6,6 +6,13 @@ import (
 	"net"
 )
 
+const (
+	maxDataLen       = 5080
+	maxSendDataLen   = 4000
+	maxHeader        = 2
+	packetHeaderSize = 4 // 消息包头大小
+)
+
 // 单独日志消息
 type msgListen struct {
 	msg  string // 消息
@@ -55,12 +62,15 @@ func (this *Session) InitConn(tid uint32, address string, conn *net.TCPConn) {
 }
 
 func (this *Session) Run() {
+	EnterThread()
 	go this.runReader()
+
+	EnterThread()
 	go this.runWriter()
 }
 
 func (this *Session) runReader() {
-	EnterThread()
+	defer LeaveThread()
 
 	// 捕捉异常
 	defer func() {
@@ -74,7 +84,6 @@ func (this *Session) runReader() {
 		}
 
 		CloseSession(this.toMailId, this)
-		LeaveThread()
 	}()
 
 	for {
@@ -91,18 +100,17 @@ func (this *Session) runReader() {
 	}
 
 	CloseSession(this.toMailId, this)
-	LeaveThread()
 }
 
 // 读取网络消息
 func (this *Session) readConnData(conn *net.TCPConn) (msg Msg_node, ret error) {
 
-	var header [ConnHeaderSize]byte
+	var header [packetHeaderSize]byte
 	var length int
 	length, ret = io.ReadFull(conn, header[:])
 
-	if length != ConnHeaderSize {
-		fmt.Printf("Net packet header : %d != %d\n", length, ConnHeaderSize)
+	if length != packetHeaderSize {
+		fmt.Printf("Net packet header : %d != %d\n", length, packetHeaderSize)
 		return
 	}
 	if ret != nil {
@@ -118,7 +126,7 @@ func (this *Session) readConnData(conn *net.TCPConn) (msg Msg_node, ret error) {
 	// 根据 msg.Len 分配一个 缓冲, 并读取 body
 	buf := make([]byte, msg.Len)
 	length, ret = io.ReadFull(conn, buf[:])
-	if length != ConnHeaderSize {
+	if length != packetHeaderSize {
 		fmt.Printf("Net packet body : %d != %d\n", length, msg.Len)
 		return
 	}
@@ -132,7 +140,7 @@ func (this *Session) readConnData(conn *net.TCPConn) (msg Msg_node, ret error) {
 }
 
 func (this *Session) runWriter() {
-	EnterThread()
+	defer LeaveThread()
 
 	// 捕捉异常
 	defer func() {
@@ -146,7 +154,6 @@ func (this *Session) runWriter() {
 		}
 
 		CloseSession(this.toMailId, this)
-		LeaveThread()
 	}()
 
 	for {
@@ -163,8 +170,8 @@ func (this *Session) runWriter() {
 
 			t := n.Data.(*Msg_node)
 
-			if t.Len > MaxHeader && t.Len < MaxSendDataLen {
-				_, err := this.connClient.Write(t.Data[:MaxHeader+t.Len])
+			if t.Len > maxHeader && t.Len < maxSendDataLen {
+				_, err := this.connClient.Write(t.Data[:maxHeader+t.Len])
 				if err != nil {
 					println(err.Error())
 				}
@@ -175,7 +182,6 @@ func (this *Session) runWriter() {
 	}
 
 	CloseSession(this.toMailId, this)
-	LeaveThread()
 }
 
 func (this *Session) PostOneMsg(d interface{}) {

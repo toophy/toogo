@@ -2,6 +2,7 @@ package toogo
 
 import (
 	"net"
+	"os"
 	"sync"
 	"time"
 )
@@ -16,6 +17,10 @@ func PostThreadMsg(tid uint32, data interface{}) {
 // 创建App
 func newApp() *App {
 	a := new(App)
+	a.sessions = make(map[uint32]*Session, 20)
+	a.sessionNames = make(map[string]*Session, 16)
+	a.config.ListenPorts = make(map[string]listenPort, 3)
+	a.config.ConnectPorts = make(map[string]connectPort, 9)
 	return a
 }
 
@@ -38,14 +43,24 @@ func Run(m IThread) {
 	ToogoApp.master = m
 	if ToogoApp.master != nil {
 		ToogoApp.master.Run_thread()
+	} else {
+		println("Can not find master thread")
+		os.Exit(2)
 	}
 
+	cfg := &ToogoApp.config
 	// Listen
+	for _, v := range cfg.ListenPorts {
+		Listen(Tid_world, v.Name, v.NetType, v.Address, v.AcceptQuit)
+	}
+
 	// Connect
-	// ...
+	for _, v := range cfg.ConnectPorts {
+		Connect(Tid_world, v.Name, v.NetType, v.Address)
+	}
 
 	ToogoApp.wg.Wait()
-	<-time.After(3 * time.Second)
+	<-time.After(6 * time.Second)
 	println("quit " + ToogoApp.config.AppName)
 }
 
@@ -123,8 +138,26 @@ func delSession(id uint32) {
 // address    : 远程服务ip地址
 // accpetQuit : 接收器失败, 就退出
 func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
+	println("listen start")
+	EnterThread()
 	go func(tid uint32, name, net_type, address string, accpetQuit bool) {
+		defer LeaveThread()
+
+		// 捕捉异常
+		defer func() {
+			if r := recover(); r != nil {
+				switch r.(type) {
+				case error:
+					println("Listen:" + r.(error).Error())
+				case string:
+					println("Listen:" + r.(string))
+				}
+			}
+			// 需要把 panic 信息 写入文件中
+		}()
+
 		if len(address) == 0 || len(address) == 0 || len(net_type) == 0 {
+			println("listen failed")
 			PostThreadMsg(tid, msgListen{"listen failed", name, 0, "listen failed"})
 			return
 		}
@@ -133,13 +166,14 @@ func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
 		serverAddr, err := net.ResolveTCPAddr(net_type, address)
 
 		if err != nil {
+			println("Listen Start : port failed: '" + address + "' " + err.Error())
 			PostThreadMsg(tid, msgListen{"listen failed", name, 0, "Listen Start : port failed: '" + address + "' " + err.Error()})
-
 			return
 		}
 
 		listener, err := net.ListenTCP(net_type, serverAddr)
 		if err != nil {
+			println("TcpSerer ListenTCP: " + err.Error())
 			PostThreadMsg(tid, msgListen{"listen failed", name, 0, "TcpSerer ListenTCP: " + err.Error()})
 			return
 		}
@@ -147,12 +181,14 @@ func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
 		ln := newSession(name)
 		ln.InitListen(tid, address, listener)
 
+		println("listen ok")
 		PostThreadMsg(tid, msgListen{"listen ok", name, 0, ""})
 
 		for {
 			conn, err := listener.AcceptTCP()
 			if err != nil {
 				if accpetQuit {
+					println("accpectQuit")
 					break
 				}
 				continue
@@ -160,8 +196,10 @@ func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
 			c := newSession("")
 			c.InitConn(tid, "", conn)
 			c.Run()
+			println("accept ok")
 			PostThreadMsg(tid, msgListen{"accept ok", "", c.Id, ""})
 		}
+		println("listen end")
 	}(tid, name, net_type, address, accpetQuit)
 }
 
@@ -171,7 +209,23 @@ func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
 // net_type : 会话类型(tcp,udp)
 // address  : 远程服务ip地址
 func Connect(tid uint32, name, net_type, address string) {
+	EnterThread()
 	go func(tid uint32, name, net_type, address string) {
+		defer LeaveThread()
+
+		// 捕捉异常
+		defer func() {
+			if r := recover(); r != nil {
+				switch r.(type) {
+				case error:
+					println("Connect:" + r.(error).Error())
+				case string:
+					println("Connect:" + r.(string))
+				}
+			}
+			// 需要把 panic 信息 写入文件中
+		}()
+
 		if len(address) == 0 || len(net_type) == 0 || len(name) == 0 {
 			PostThreadMsg(tid, msgListen{"connect failed", name, 0, "listen failed"})
 			return
@@ -201,7 +255,23 @@ func Connect(tid uint32, name, net_type, address string) {
 // tid      : 关联线程
 // s        : 会话对象
 func CloseSession(tid uint32, s *Session) {
+	EnterThread()
 	go func(tid uint32, s *Session) {
+		defer LeaveThread()
+
+		// 捕捉异常
+		defer func() {
+			if r := recover(); r != nil {
+				switch r.(type) {
+				case error:
+					println("CloseSession:" + r.(error).Error())
+				case string:
+					println("CloseSession:" + r.(string))
+				}
+			}
+			// 需要把 panic 信息 写入文件中
+		}()
+
 		PostThreadMsg(tid, msgListen{"pre close", s.Name, s.Id, ""})
 
 		var err error
