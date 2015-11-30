@@ -26,6 +26,7 @@ type IThread interface {
 	GetEvent(name string) IEvent // 通过别名获取事件
 	RemoveEvent(e IEvent)        // 删除事件, 只能操作本线程事件
 
+	Add_log(d string)                    // 增加日志信息
 	LogDebug(f string, v ...interface{}) // 线程日志 : 调试[D]级别日志
 	LogInfo(f string, v ...interface{})  // 线程日志 : 信息[I]级别日志
 	LogWarn(f string, v ...interface{})  // 线程日志 : 警告[W]级别日志
@@ -335,11 +336,6 @@ func (this *Thread) PostThreadMsg(tid uint32, a IThreadMsg) bool {
 		}
 		n.Init(a)
 
-		if !a.AddNode(n) {
-			this.LogError("PostThreadMsg AddNode failed")
-			return false
-		}
-
 		old_pre := header.Pre
 
 		header.Pre = n
@@ -375,16 +371,13 @@ func (this *Thread) runThreadMsg() {
 	GetThreadMsgs().GetMsg(this.Get_thread_id(), &header)
 
 	for {
-		// 每次得到链表第一个事件(非)
 		n := header.Next
 		if n.IsEmpty() {
 			break
 		}
 
-		// 执行事件, 删除这个事件
-		e := n.Data.(IThreadMsg)
-		e.Exec(this.self)
-		e.Destroy()
+		n.Data.(IThreadMsg).Exec(this.self)
+		n.Pop()
 	}
 }
 
@@ -392,15 +385,11 @@ func (this *Thread) runThreadMsg() {
 func (this *Thread) sendThreadMsg() {
 
 	// 发送日志到日志线程
-	// if !this.is_world_thread() && this.log_BufferLen > 0 {
-	// 	evt := &Event_thread_log{}
-	// 	evt.Init("", 100)
-	// 	evt.Data = string(this.log_Buffer[:this.log_BufferLen])
-	// 	this.PostThreadMsg(Tid_world, evt)
-
-	// 	copy(this.log_Buffer[:0], "")
-	// 	this.log_BufferLen = 0
-	// }
+	if !this.is_world_thread() && this.log_BufferLen > 0 {
+		PostThreadMsg(Tid_world, &msgThreadLog{Data: string(this.log_Buffer[:this.log_BufferLen])})
+		copy(this.log_Buffer[:0], "")
+		this.log_BufferLen = 0
+	}
 
 	for i := uint32(Tid_world); i < Tid_last; i++ {
 		if !this.evt_threadMsg[i].IsEmpty() {
@@ -545,4 +534,14 @@ func (this *Thread) GetCurrTime() int64 {
 	}
 
 	return this.curr_time
+}
+
+// 单独日志消息
+type msgThreadLog struct {
+	Data string
+}
+
+func (this *msgThreadLog) Exec(home interface{}) bool {
+	home.(IThread).Add_log(this.Data)
+	return true
 }

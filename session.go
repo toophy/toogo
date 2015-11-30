@@ -15,7 +15,6 @@ const (
 
 // 单独日志消息
 type msgListen struct {
-	ThreadMsg_base
 	msg  string // 消息
 	name string // 别名
 	id   uint32 // 网络会话ID
@@ -30,7 +29,6 @@ func (this *msgListen) Exec(home interface{}) bool {
 
 // 消息节点(list节点)
 type Msg_node struct {
-	ThreadMsg_base
 	Len   uint32 // 包长度
 	Token uint32 // 包令牌
 	Count uint32 // 包内消息数

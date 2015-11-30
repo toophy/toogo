@@ -118,30 +118,4 @@ func (this *EventObj) AddEvent(e IEvent) bool {
 //-------------------------------------------------------
 type IThreadMsg interface {
 	Exec(home interface{}) bool // 执行事件
-	AddNode(n *DListNode) bool  // 增加节点
-	Destroy()                   // 摧毁事件
-	Pop()                       // 弹出事件
-}
-
-type ThreadMsg_base struct {
-	Node *DListNode
-}
-
-func (this *ThreadMsg_base) AddNode(n *DListNode) bool {
-	if this.Node == nil {
-		this.Node = n
-		return true
-	}
-	return false
-}
-
-func (this *ThreadMsg_base) Destroy() {
-	this.Pop()
-	this.Node = nil
-}
-
-func (this *ThreadMsg_base) Pop() {
-	if this.Node != nil {
-		this.Node.Pop()
-	}
 }

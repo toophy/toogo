@@ -11,12 +11,6 @@ import (
 func PostThreadMsg(tid uint32, a IThreadMsg) {
 	n := new(DListNode)
 	n.Init(a)
-
-	if !a.AddNode(n) {
-		println("PostThreadMsg AddNode failed")
-		return
-	}
-
 	GetThreadMsgs().PushOneMsg(tid, n)
 	println("PostThreadMsg")
 }
