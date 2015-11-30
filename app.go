@@ -8,10 +8,17 @@ import (
 )
 
 // 这个函数, 后期优化, 需要使用 automic 进行等待写入, 主要是强占目标线程会比较厉害, 但是写入操作非常快
-func PostThreadMsg(tid uint32, data interface{}) {
+func PostThreadMsg(tid uint32, a IThreadMsg) {
 	n := new(DListNode)
-	n.Init(data)
+	n.Init(a)
+
+	if !a.AddNode(n) {
+		println("PostThreadMsg AddNode failed")
+		return
+	}
+
 	GetThreadMsgs().PushOneMsg(tid, n)
+	println("PostThreadMsg")
 }
 
 // 创建App
@@ -163,7 +170,7 @@ func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
 
 		if len(address) == 0 || len(address) == 0 || len(net_type) == 0 {
 			println("listen failed")
-			PostThreadMsg(tid, msgListen{msg: "listen failed", name: name, id: 0, info: "listen failed"})
+			PostThreadMsg(tid, &msgListen{msg: "listen failed", name: name, id: 0, info: "listen failed"})
 			return
 		}
 
@@ -172,14 +179,14 @@ func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
 
 		if err != nil {
 			println("Listen Start : port failed: '" + address + "' " + err.Error())
-			PostThreadMsg(tid, msgListen{msg: "listen failed", name: name, id: 0, info: "Listen Start : port failed: '" + address + "' " + err.Error()})
+			PostThreadMsg(tid, &msgListen{msg: "listen failed", name: name, id: 0, info: "Listen Start : port failed: '" + address + "' " + err.Error()})
 			return
 		}
 
 		listener, err := net.ListenTCP(net_type, serverAddr)
 		if err != nil {
 			println("TcpSerer ListenTCP: " + err.Error())
-			PostThreadMsg(tid, msgListen{msg: "listen failed", name: name, id: 0, info: "TcpSerer ListenTCP: " + err.Error()})
+			PostThreadMsg(tid, &msgListen{msg: "listen failed", name: name, id: 0, info: "TcpSerer ListenTCP: " + err.Error()})
 			return
 		}
 
@@ -187,7 +194,7 @@ func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
 		ln.InitListen(tid, address, listener)
 
 		println("listen ok")
-		PostThreadMsg(tid, msgListen{msg: "listen ok", name: name, id: 0, info: ""})
+		PostThreadMsg(tid, &msgListen{msg: "listen ok", name: name, id: 0, info: ""})
 
 		for {
 			conn, err := listener.AcceptTCP()
@@ -202,7 +209,7 @@ func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
 			c.InitConn(tid, "", conn)
 			c.Run()
 			println("accept ok")
-			PostThreadMsg(tid, msgListen{msg: "accept ok", name: "", id: c.Id, info: ""})
+			PostThreadMsg(tid, &msgListen{msg: "accept ok", name: "", id: c.Id, info: ""})
 		}
 		println("listen end")
 	}(tid, name, net_type, address, accpetQuit)
@@ -232,7 +239,7 @@ func Connect(tid uint32, name, net_type, address string) {
 		}()
 
 		if len(address) == 0 || len(net_type) == 0 || len(name) == 0 {
-			PostThreadMsg(tid, msgListen{msg: "connect failed", name: name, id: 0, info: "listen failed"})
+			PostThreadMsg(tid, &msgListen{msg: "connect failed", name: name, id: 0, info: "listen failed"})
 			return
 		}
 
@@ -240,18 +247,18 @@ func Connect(tid uint32, name, net_type, address string) {
 		remoteAddr, err := net.ResolveTCPAddr(net_type, address)
 
 		if err != nil {
-			PostThreadMsg(tid, msgListen{msg: "connect failed", name: name, id: 0, info: "Connect Start : port failed: '" + address + "' " + err.Error()})
+			PostThreadMsg(tid, &msgListen{msg: "connect failed", name: name, id: 0, info: "Connect Start : port failed: '" + address + "' " + err.Error()})
 			return
 		}
 
 		conn, err := net.DialTCP(net_type, nil, remoteAddr)
 		if err != nil {
-			PostThreadMsg(tid, msgListen{msg: "connect failed", name: name, id: 0, info: "Connect dialtcp failed: '" + address + "' " + err.Error()})
+			PostThreadMsg(tid, &msgListen{msg: "connect failed", name: name, id: 0, info: "Connect dialtcp failed: '" + address + "' " + err.Error()})
 		} else {
 			c := newSession(name)
 			c.InitConn(tid, "", conn)
 			c.Run()
-			PostThreadMsg(tid, msgListen{msg: "connect ok", name: name, id: c.Id, info: ""})
+			PostThreadMsg(tid, &msgListen{msg: "connect ok", name: name, id: c.Id, info: ""})
 		}
 	}(tid, name, net_type, address)
 }
@@ -277,7 +284,7 @@ func CloseSession(tid uint32, s *Session) {
 			// 需要把 panic 信息 写入文件中
 		}()
 
-		PostThreadMsg(tid, msgListen{msg: "pre close", name: s.Name, id: s.Id, info: ""})
+		PostThreadMsg(tid, &msgListen{msg: "pre close", name: s.Name, id: s.Id, info: ""})
 
 		var err error
 
@@ -289,9 +296,9 @@ func CloseSession(tid uint32, s *Session) {
 		}
 
 		if err != nil {
-			PostThreadMsg(tid, msgListen{msg: "close failed", name: s.Name, id: s.Id, info: err.Error()})
+			PostThreadMsg(tid, &msgListen{msg: "close failed", name: s.Name, id: s.Id, info: err.Error()})
 		} else {
-			PostThreadMsg(tid, msgListen{msg: "close ok", name: s.Name, id: s.Id, info: ""})
+			PostThreadMsg(tid, &msgListen{msg: "close ok", name: s.Name, id: s.Id, info: ""})
 		}
 
 		delSession(s.Id)

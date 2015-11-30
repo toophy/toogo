@@ -320,7 +320,7 @@ func (this *Thread) PostEvent(a IEvent) bool {
 }
 
 // 投递线程间消息
-func (this *Thread) PostThreadMsg(tid uint32, a IEvent) bool {
+func (this *Thread) PostThreadMsg(tid uint32, a IThreadMsg) bool {
 	if tid == this.Get_thread_id() {
 		this.LogWarn("PostThreadMsg dont post to self")
 		return false

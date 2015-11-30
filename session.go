@@ -22,12 +22,24 @@ type msgListen struct {
 	info string // 描述信息
 }
 
+func (this *msgListen) Exec(home interface{}) bool {
+	println("msgListen")
+	println(this.msg, this.name, this.id, this.info)
+	return true
+}
+
 // 消息节点(list节点)
 type Msg_node struct {
+	ThreadMsg_base
 	Len   uint32 // 包长度
 	Token uint32 // 包令牌
 	Count uint32 // 包内消息数
 	Data  []byte // 数据
+}
+
+func (this *Msg_node) Exec(home interface{}) bool {
+	println("Msg_node")
+	return true
 }
 
 // 发送消息给唯一go程
@@ -96,7 +108,7 @@ func (this *Session) runReader() {
 			// 解密后, data大小不会有多大变化(只会变小)
 			PostThreadMsg(this.toMailId, &data)
 		} else {
-			PostThreadMsg(this.toMailId, msgListen{msg: "read failed", name: this.Name, id: this.Id, info: ret.Error()})
+			PostThreadMsg(this.toMailId, &msgListen{msg: "read failed", name: this.Name, id: this.Id, info: ret.Error()})
 			break
 		}
 	}
@@ -195,9 +207,4 @@ func (this *Session) PostOneMsg(d interface{}) {
 
 func (this *Session) PostMsgList(d *DListNode) {
 	GetThreadMsgs().PushMsg(this.mailId, d)
-}
-
-func (this *msgListen) Exec(home interface{}) bool {
-	println("msgListen")
-	return true
 }
