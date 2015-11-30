@@ -193,14 +193,3 @@ func (this *ThreadMsgPool) WaitMsg(tid uint32, e *DListNode) bool {
 	}
 	return false
 }
-
-var g_ThreadMsgPool *ThreadMsgPool
-
-// 单例
-func GetThreadMsgs() *ThreadMsgPool {
-	if g_ThreadMsgPool == nil {
-		g_ThreadMsgPool = new(ThreadMsgPool)
-	}
-
-	return g_ThreadMsgPool
-}

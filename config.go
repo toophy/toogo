@@ -13,7 +13,7 @@ var ToogoApp *App
 type toogoConfig struct {
 	AppName         string                 // App名称
 	workPath        string                 // 工作目录
-	MsgPoolCount    uint                   // ThreadMsgPool邮箱容量
+	MsgPoolCount    uint32                 // ThreadMsgPool邮箱容量
 	LogFlushTime    int64                  // 日志写入缓冲的间隔时间(毫秒)
 	LogLimitLevel   int                    // 显示这个等级之上的日志(控制台)
 	LogBuffMax      int                    // 日志缓冲(KB)
@@ -58,7 +58,7 @@ func init() {
 	workPath, _ = filepath.Abs(workPath)
 	cfg.workPath = workPath
 
-	cfg.MsgPoolCount = uint(cc.DefaultInt("sys::ThreadMsgPoolCount", 10000))
+	cfg.MsgPoolCount = uint32(cc.DefaultInt("sys::ThreadMsgPoolCount", 10000))
 
 	cfg.LogFlushTime = cc.DefaultInt64("log::LogFlushTime", 300)
 

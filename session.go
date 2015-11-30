@@ -15,6 +15,7 @@ const (
 
 // 单独日志消息
 type msgListen struct {
+	ThreadMsg_base
 	msg  string // 消息
 	name string // 别名
 	id   uint32 // 网络会话ID
@@ -84,6 +85,7 @@ func (this *Session) runReader() {
 		}
 
 		CloseSession(this.toMailId, this)
+		return
 	}()
 
 	for {
@@ -94,7 +96,7 @@ func (this *Session) runReader() {
 			// 解密后, data大小不会有多大变化(只会变小)
 			PostThreadMsg(this.toMailId, &data)
 		} else {
-			PostThreadMsg(this.toMailId, msgListen{"read failed", this.Name, this.Id, ret.Error()})
+			PostThreadMsg(this.toMailId, msgListen{msg: "read failed", name: this.Name, id: this.Id, info: ret.Error()})
 			break
 		}
 	}
@@ -154,6 +156,7 @@ func (this *Session) runWriter() {
 		}
 
 		CloseSession(this.toMailId, this)
+		return
 	}()
 
 	for {
@@ -161,8 +164,8 @@ func (this *Session) runWriter() {
 		header.Init(nil)
 
 		GetThreadMsgs().WaitMsg(this.mailId, &header)
-
 		for {
+
 			n := header.Next
 			if n.IsEmpty() {
 				break
@@ -192,4 +195,9 @@ func (this *Session) PostOneMsg(d interface{}) {
 
 func (this *Session) PostMsgList(d *DListNode) {
 	GetThreadMsgs().PushMsg(this.mailId, d)
+}
+
+func (this *msgListen) Exec(home interface{}) bool {
+	println("msgListen")
+	return true
 }

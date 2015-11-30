@@ -29,13 +29,14 @@ func newApp() *App {
 // 2. 管理网络会话
 // 3. 整合框架
 type App struct {
-	master        IThread             // 主线程
-	lastSessionId uint32              // 网络会话ID
-	sessions      map[uint32]*Session // 网络会话池
-	sessionNames  map[string]*Session // 网络会话池(别名)
-	sessionMutex  sync.RWMutex        // 网络会话池读写锁
-	config        toogoConfig         // 配置信息
-	wg            sync.WaitGroup      // App退出信号组
+	master         IThread             // 主线程
+	lastSessionId  uint32              // 网络会话ID
+	sessions       map[uint32]*Session // 网络会话池
+	sessionNames   map[string]*Session // 网络会话池(别名)
+	sessionMutex   sync.RWMutex        // 网络会话池读写锁
+	config         toogoConfig         // 配置信息
+	wg             sync.WaitGroup      // App退出信号组
+	gThreadMsgPool *ThreadMsgPool      // 线程间消息池
 }
 
 // 应用初始化
@@ -49,6 +50,10 @@ func Run(m IThread) {
 	}
 
 	cfg := &ToogoApp.config
+
+	ToogoApp.gThreadMsgPool = new(ThreadMsgPool)
+	ToogoApp.gThreadMsgPool.Init(cfg.MsgPoolCount)
+
 	// Listen
 	for _, v := range cfg.ListenPorts {
 		Listen(Tid_world, v.Name, v.NetType, v.Address, v.AcceptQuit)
@@ -158,7 +163,7 @@ func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
 
 		if len(address) == 0 || len(address) == 0 || len(net_type) == 0 {
 			println("listen failed")
-			PostThreadMsg(tid, msgListen{"listen failed", name, 0, "listen failed"})
+			PostThreadMsg(tid, msgListen{msg: "listen failed", name: name, id: 0, info: "listen failed"})
 			return
 		}
 
@@ -167,14 +172,14 @@ func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
 
 		if err != nil {
 			println("Listen Start : port failed: '" + address + "' " + err.Error())
-			PostThreadMsg(tid, msgListen{"listen failed", name, 0, "Listen Start : port failed: '" + address + "' " + err.Error()})
+			PostThreadMsg(tid, msgListen{msg: "listen failed", name: name, id: 0, info: "Listen Start : port failed: '" + address + "' " + err.Error()})
 			return
 		}
 
 		listener, err := net.ListenTCP(net_type, serverAddr)
 		if err != nil {
 			println("TcpSerer ListenTCP: " + err.Error())
-			PostThreadMsg(tid, msgListen{"listen failed", name, 0, "TcpSerer ListenTCP: " + err.Error()})
+			PostThreadMsg(tid, msgListen{msg: "listen failed", name: name, id: 0, info: "TcpSerer ListenTCP: " + err.Error()})
 			return
 		}
 
@@ -182,7 +187,7 @@ func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
 		ln.InitListen(tid, address, listener)
 
 		println("listen ok")
-		PostThreadMsg(tid, msgListen{"listen ok", name, 0, ""})
+		PostThreadMsg(tid, msgListen{msg: "listen ok", name: name, id: 0, info: ""})
 
 		for {
 			conn, err := listener.AcceptTCP()
@@ -197,7 +202,7 @@ func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
 			c.InitConn(tid, "", conn)
 			c.Run()
 			println("accept ok")
-			PostThreadMsg(tid, msgListen{"accept ok", "", c.Id, ""})
+			PostThreadMsg(tid, msgListen{msg: "accept ok", name: "", id: c.Id, info: ""})
 		}
 		println("listen end")
 	}(tid, name, net_type, address, accpetQuit)
@@ -227,7 +232,7 @@ func Connect(tid uint32, name, net_type, address string) {
 		}()
 
 		if len(address) == 0 || len(net_type) == 0 || len(name) == 0 {
-			PostThreadMsg(tid, msgListen{"connect failed", name, 0, "listen failed"})
+			PostThreadMsg(tid, msgListen{msg: "connect failed", name: name, id: 0, info: "listen failed"})
 			return
 		}
 
@@ -235,18 +240,18 @@ func Connect(tid uint32, name, net_type, address string) {
 		remoteAddr, err := net.ResolveTCPAddr(net_type, address)
 
 		if err != nil {
-			PostThreadMsg(tid, msgListen{"connect failed", name, 0, "Connect Start : port failed: '" + address + "' " + err.Error()})
+			PostThreadMsg(tid, msgListen{msg: "connect failed", name: name, id: 0, info: "Connect Start : port failed: '" + address + "' " + err.Error()})
 			return
 		}
 
 		conn, err := net.DialTCP(net_type, nil, remoteAddr)
 		if err != nil {
-			PostThreadMsg(tid, msgListen{"connect failed", name, 0, "Connect dialtcp failed: '" + address + "' " + err.Error()})
+			PostThreadMsg(tid, msgListen{msg: "connect failed", name: name, id: 0, info: "Connect dialtcp failed: '" + address + "' " + err.Error()})
 		} else {
 			c := newSession(name)
 			c.InitConn(tid, "", conn)
 			c.Run()
-			PostThreadMsg(tid, msgListen{"connect ok", name, c.Id, ""})
+			PostThreadMsg(tid, msgListen{msg: "connect ok", name: name, id: c.Id, info: ""})
 		}
 	}(tid, name, net_type, address)
 }
@@ -272,7 +277,7 @@ func CloseSession(tid uint32, s *Session) {
 			// 需要把 panic 信息 写入文件中
 		}()
 
-		PostThreadMsg(tid, msgListen{"pre close", s.Name, s.Id, ""})
+		PostThreadMsg(tid, msgListen{msg: "pre close", name: s.Name, id: s.Id, info: ""})
 
 		var err error
 
@@ -284,11 +289,15 @@ func CloseSession(tid uint32, s *Session) {
 		}
 
 		if err != nil {
-			PostThreadMsg(tid, msgListen{"close failed", s.Name, s.Id, err.Error()})
+			PostThreadMsg(tid, msgListen{msg: "close failed", name: s.Name, id: s.Id, info: err.Error()})
 		} else {
-			PostThreadMsg(tid, msgListen{"close ok", s.Name, s.Id, ""})
+			PostThreadMsg(tid, msgListen{msg: "close ok", name: s.Name, id: s.Id, info: ""})
 		}
 
 		delSession(s.Id)
 	}(tid, s)
+}
+
+func GetThreadMsgs() *ThreadMsgPool {
+	return ToogoApp.gThreadMsgPool
 }

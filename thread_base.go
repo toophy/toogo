@@ -382,7 +382,7 @@ func (this *Thread) runThreadMsg() {
 		}
 
 		// 执行事件, 删除这个事件
-		e := n.Data.(IEvent)
+		e := n.Data.(IThreadMsg)
 		e.Exec(this.self)
 		e.Destroy()
 	}
