@@ -13,6 +13,6 @@ func (this *Event_close_thread) Exec(home interface{}) bool {
 		return true
 	}
 
-	println("没找到线程")
+	LogWarnPost(0, "没找到线程")
 	return true
 }

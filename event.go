@@ -112,10 +112,3 @@ func (this *EventObj) AddEvent(e IEvent) bool {
 
 	return true
 }
-
-//
-// 消息
-//-------------------------------------------------------
-type IThreadMsg interface {
-	Exec(home interface{}) bool // 执行事件
-}

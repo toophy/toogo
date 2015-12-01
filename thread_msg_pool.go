@@ -111,7 +111,7 @@ func (this *ThreadMsgPool) GetMsg(tid uint32, e *DListNode) bool {
 	return false
 }
 
-// 投递Go程间消息, PushMsg 和 WaitMsg 是一对, 投递和等待消息
+// 投递Go程间消息, PushOneMsg 和 WaitMsg 是一对, 投递和等待消息
 func (this *ThreadMsgPool) PushOneMsg(tid uint32, e *DListNode) bool {
 
 	if e != nil && tid < this.count {

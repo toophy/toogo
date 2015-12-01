@@ -46,7 +46,7 @@ func init() {
 	var iniConfig IniConfig
 	cc, err := iniConfig.parseFile("conf/toogo.conf")
 	if err != nil {
-		println("Can not find conf/toogo.conf")
+		fmt.Println("Can not find conf/toogo.conf")
 		os.Exit(1)
 	}
 

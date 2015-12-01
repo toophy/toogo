@@ -1,7 +1,6 @@
 package toogo
 
 import (
-	"fmt"
 	"io"
 	"net"
 )
@@ -12,33 +11,6 @@ const (
 	maxHeader        = 2
 	packetHeaderSize = 4 // 消息包头大小
 )
-
-// 单独日志消息
-type msgListen struct {
-	msg  string // 消息
-	name string // 别名
-	id   uint32 // 网络会话ID
-	info string // 描述信息
-}
-
-func (this *msgListen) Exec(home interface{}) bool {
-	println("msgListen")
-	println(this.msg, this.name, this.id, this.info)
-	return true
-}
-
-// 消息节点(list节点)
-type Msg_node struct {
-	Len   uint32 // 包长度
-	Token uint32 // 包令牌
-	Count uint32 // 包内消息数
-	Data  []byte // 数据
-}
-
-func (this *Msg_node) Exec(home interface{}) bool {
-	println("Msg_node")
-	return true
-}
 
 // 发送消息给唯一go程
 // 从网络接口接收数据
@@ -56,7 +28,7 @@ type Session struct {
 	connListen *net.TCPListener // 侦听连接
 }
 
-func (this *Session) InitListen(tid uint32, address string, conn *net.TCPListener) {
+func (this *Session) initListen(tid uint32, address string, conn *net.TCPListener) {
 	this.typeName = "listen"
 	this.mailId, _ = GetThreadMsgs().AllocId()
 	this.toMailId = tid
@@ -64,7 +36,7 @@ func (this *Session) InitListen(tid uint32, address string, conn *net.TCPListene
 	this.connListen = conn
 }
 
-func (this *Session) InitConn(tid uint32, address string, conn *net.TCPConn) {
+func (this *Session) initConn(tid uint32, address string, conn *net.TCPConn) {
 	this.typeName = "conn"
 	this.mailId, _ = GetThreadMsgs().AllocId()
 	this.toMailId = tid
@@ -72,7 +44,7 @@ func (this *Session) InitConn(tid uint32, address string, conn *net.TCPConn) {
 	this.connClient = conn
 }
 
-func (this *Session) Run() {
+func (this *Session) run() {
 	EnterThread()
 	go this.runReader()
 
@@ -88,9 +60,9 @@ func (this *Session) runReader() {
 		if r := recover(); r != nil {
 			switch r.(type) {
 			case error:
-				println("Session::runReader:" + r.(error).Error())
+				LogWarnPost(this.mailId, "Session::runReader:"+r.(error).Error())
 			case string:
-				println("Session::runReader:" + r.(string))
+				LogWarnPost(this.mailId, "Session::runReader:"+r.(string))
 			}
 		}
 
@@ -122,7 +94,7 @@ func (this *Session) readConnData(conn *net.TCPConn) (msg Msg_node, ret error) {
 	length, ret = io.ReadFull(conn, header[:])
 
 	if length != packetHeaderSize {
-		fmt.Printf("Net packet header : %d != %d\n", length, packetHeaderSize)
+		LogWarnPost(this.mailId, "Net packet header : %d != %d\n", length, packetHeaderSize)
 		return
 	}
 	if ret != nil {
@@ -133,13 +105,13 @@ func (this *Session) readConnData(conn *net.TCPConn) (msg Msg_node, ret error) {
 	msg.Token = uint32(header[2])
 	msg.Count = uint32(header[3])
 
-	fmt.Printf("ReadConnData : len =%d, token=%d, count=%d\n", msg.Len, msg.Token, msg.Count)
+	LogWarnPost(this.mailId, "ReadConnData : len =%d, token=%d, count=%d\n", msg.Len, msg.Token, msg.Count)
 
 	// 根据 msg.Len 分配一个 缓冲, 并读取 body
 	buf := make([]byte, msg.Len)
 	length, ret = io.ReadFull(conn, buf[:])
 	if length != packetHeaderSize {
-		fmt.Printf("Net packet body : %d != %d\n", length, msg.Len)
+		LogWarnPost(this.mailId, "Net packet body : %d != %d\n", length, msg.Len)
 		return
 	}
 	if ret != nil {
@@ -159,9 +131,9 @@ func (this *Session) runWriter() {
 		if r := recover(); r != nil {
 			switch r.(type) {
 			case error:
-				println("Session::runWriter:" + r.(error).Error())
+				LogWarnPost(this.mailId, "Session::runWriter:"+r.(error).Error())
 			case string:
-				println("Session::runWriter:" + r.(string))
+				LogWarnPost(this.mailId, "Session::runWriter:"+r.(string))
 			}
 		}
 
@@ -186,7 +158,7 @@ func (this *Session) runWriter() {
 			if t.Len > maxHeader && t.Len < maxSendDataLen {
 				_, err := this.connClient.Write(t.Data[:maxHeader+t.Len])
 				if err != nil {
-					println(err.Error())
+					LogWarnPost(this.mailId, err.Error())
 				}
 			}
 
@@ -197,12 +169,220 @@ func (this *Session) runWriter() {
 	CloseSession(this.toMailId, this)
 }
 
-func (this *Session) PostOneMsg(d interface{}) {
-	n := &DListNode{}
-	n.Init(d)
-	GetThreadMsgs().PushOneMsg(this.mailId, n)
+// 通过Id获取会话对象
+func GetConnById(id uint32) *Session {
+	ToogoApp.sessionMutex.RLock()
+	defer ToogoApp.sessionMutex.RUnlock()
+
+	if v, ok := ToogoApp.sessions[id]; ok {
+		return v
+	}
+
+	return nil
 }
 
-func (this *Session) PostMsgList(d *DListNode) {
-	GetThreadMsgs().PushMsg(this.mailId, d)
+// 通过别名获取会话对象
+func GetConnByName(name string) *Session {
+	ToogoApp.sessionMutex.RLock()
+	defer ToogoApp.sessionMutex.RUnlock()
+
+	if v, ok := ToogoApp.sessionNames[name]; ok {
+		return v
+	}
+
+	return nil
+}
+
+// 新建一个网络会话, 可以使用别名
+func newSession(name string) *Session {
+	s := new(Session)
+
+	ToogoApp.sessionMutex.Lock()
+	defer ToogoApp.sessionMutex.Unlock()
+
+	if len(name) > 0 {
+		if _, ok := ToogoApp.sessionNames[name]; ok {
+			return nil
+		} else {
+			s.Name = name
+			ToogoApp.sessionNames[name] = s
+		}
+	}
+
+	s.Id = ToogoApp.lastSessionId
+	ToogoApp.sessions[ToogoApp.lastSessionId] = s
+	ToogoApp.lastSessionId++
+
+	return s
+}
+
+// 删除一个网络会话
+func delSession(id uint32) {
+	ToogoApp.sessionMutex.Lock()
+	defer ToogoApp.sessionMutex.Unlock()
+
+	if _, ok := ToogoApp.sessions[id]; ok {
+		delete(ToogoApp.sessions, id)
+	}
+}
+
+// 建立一个侦听服务
+// tid        : 关联线程
+// name       : 会话别名
+// net_type   : 会话类型(tcp,udp)
+// address    : 远程服务ip地址
+// accpetQuit : 接收器失败, 就退出
+func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
+	EnterThread()
+	go func(tid uint32, name, net_type, address string, accpetQuit bool) {
+		defer LeaveThread()
+
+		// 捕捉异常
+		defer func() {
+			if r := recover(); r != nil {
+				switch r.(type) {
+				case error:
+					LogWarnPost(0, "Listen:"+r.(error).Error())
+				case string:
+					LogWarnPost(0, "Listen:"+r.(string))
+				}
+			}
+			return
+		}()
+
+		if len(address) == 0 || len(address) == 0 || len(net_type) == 0 {
+			LogWarnPost(0, "listen failed")
+			PostThreadMsg(tid, &msgListen{msg: "listen failed", name: name, id: 0, info: "listen failed"})
+			return
+		}
+
+		// 打开本地TCP侦听
+		serverAddr, err := net.ResolveTCPAddr(net_type, address)
+
+		if err != nil {
+			LogWarnPost(0, "Listen Start : port failed: '"+address+"' "+err.Error())
+			PostThreadMsg(tid, &msgListen{msg: "listen failed", name: name, id: 0, info: "Listen Start : port failed: '" + address + "' " + err.Error()})
+			return
+		}
+
+		listener, err := net.ListenTCP(net_type, serverAddr)
+		if err != nil {
+			LogWarnPost(0, "TcpSerer ListenTCP: "+err.Error())
+			PostThreadMsg(tid, &msgListen{msg: "listen failed", name: name, id: 0, info: "TcpSerer ListenTCP: " + err.Error()})
+			return
+		}
+
+		ln := newSession(name)
+		ln.initListen(tid, address, listener)
+
+		LogInfoPost(0, "listen ok")
+		PostThreadMsg(tid, &msgListen{msg: "listen ok", name: name, id: 0, info: ""})
+
+		for {
+			conn, err := listener.AcceptTCP()
+			if err != nil {
+				if accpetQuit {
+					LogInfoPost(0, "accpectQuit")
+					break
+				}
+				continue
+			}
+			c := newSession("")
+			c.initConn(tid, "", conn)
+			c.run()
+			LogInfoPost(0, "accept ok")
+			PostThreadMsg(tid, &msgListen{msg: "accept ok", name: "", id: c.Id, info: ""})
+		}
+		LogInfoPost(0, "listen end")
+	}(tid, name, net_type, address, accpetQuit)
+}
+
+// 连接一个远程服务
+// tid      : 关联线程
+// name     : 会话别名
+// net_type : 会话类型(tcp,udp)
+// address  : 远程服务ip地址
+func Connect(tid uint32, name, net_type, address string) {
+	EnterThread()
+	go func(tid uint32, name, net_type, address string) {
+		defer LeaveThread()
+
+		// 捕捉异常
+		defer func() {
+			if r := recover(); r != nil {
+				switch r.(type) {
+				case error:
+					LogWarnPost(0, "Connect:"+r.(error).Error())
+				case string:
+					LogWarnPost(0, "Connect:"+r.(string))
+				}
+			}
+			return
+		}()
+
+		if len(address) == 0 || len(net_type) == 0 || len(name) == 0 {
+			PostThreadMsg(tid, &msgListen{msg: "connect failed", name: name, id: 0, info: "listen failed"})
+			return
+		}
+
+		// 打开本地TCP侦听
+		remoteAddr, err := net.ResolveTCPAddr(net_type, address)
+
+		if err != nil {
+			PostThreadMsg(tid, &msgListen{msg: "connect failed", name: name, id: 0, info: "Connect Start : port failed: '" + address + "' " + err.Error()})
+			return
+		}
+
+		conn, err := net.DialTCP(net_type, nil, remoteAddr)
+		if err != nil {
+			PostThreadMsg(tid, &msgListen{msg: "connect failed", name: name, id: 0, info: "Connect dialtcp failed: '" + address + "' " + err.Error()})
+		} else {
+			c := newSession(name)
+			c.initConn(tid, "", conn)
+			c.run()
+			PostThreadMsg(tid, &msgListen{msg: "connect ok", name: name, id: c.Id, info: ""})
+		}
+	}(tid, name, net_type, address)
+}
+
+// 关闭一个会话
+// tid      : 关联线程
+// s        : 会话对象
+func CloseSession(tid uint32, s *Session) {
+	EnterThread()
+	go func(tid uint32, s *Session) {
+		defer LeaveThread()
+
+		// 捕捉异常
+		defer func() {
+			if r := recover(); r != nil {
+				switch r.(type) {
+				case error:
+					LogWarnPost(0, "CloseSession:"+r.(error).Error())
+				case string:
+					LogWarnPost(0, "CloseSession:"+r.(string))
+				}
+			}
+			return
+		}()
+
+		PostThreadMsg(tid, &msgListen{msg: "pre close", name: s.Name, id: s.Id, info: ""})
+
+		var err error
+
+		switch s.typeName {
+		case "listen":
+			err = s.connListen.Close()
+		case "conn":
+			err = s.connClient.Close()
+		}
+
+		if err != nil {
+			PostThreadMsg(tid, &msgListen{msg: "close failed", name: s.Name, id: s.Id, info: err.Error()})
+		} else {
+			PostThreadMsg(tid, &msgListen{msg: "close ok", name: s.Name, id: s.Id, info: ""})
+		}
+
+		delSession(s.Id)
+	}(tid, s)
 }
