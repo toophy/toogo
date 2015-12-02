@@ -2,6 +2,7 @@ package toogo
 
 import (
 	"errors"
+	"fmt"
 	"math"
 )
 
@@ -306,9 +307,11 @@ func (t *Stream) ReadString() string {
 	if data_len > 0 && (t.Pos+data_len) < (t.MaxLen+1) {
 		o := t.Pos
 		t.Pos = t.Pos + data_len
-		return string(t.Data[o : o+data_len])
+		ret := string(t.Data[o : o+data_len])
+		println(ret)
+		return ret
 	}
-	panic(errors.New("Stream:ReadString no long"))
+	panic(errors.New(fmt.Sprintf("Stream:ReadString no long[%d,%d,%d]", data_len, t.Pos+data_len, t.MaxLen)))
 }
 
 func (t *Stream) WriteBool(d bool) {
@@ -639,5 +642,5 @@ func (t *Stream) WriteString(d *string) {
 		t.Pos = t.Pos + d_len
 		return
 	}
-	panic(errors.New("Stream:WriteString no long"))
+	panic(errors.New(fmt.Sprintf("Stream:WriteString no long[%d,%d]", t.Pos+d_len+1, t.MaxLen)))
 }

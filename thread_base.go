@@ -20,6 +20,8 @@ type IThread interface {
 	On_pre_run()                                              // -- 只允许thread调用 : 线程最先运行部分
 	On_run()                                                  // -- 只允许thread调用 : 线程运行部分
 	On_end()                                                  // -- 只允许thread调用 : 线程结束回调
+	On_NetEvent(m *Tmsg_net) bool                             // -- 响应网络事件
+	On_NetPacket(m *Tmsg_packet) bool                         // -- 响应网络消息包
 
 	PostEvent(a IEvent) bool     // 投递定时器事件
 	GetEvent(name string) IEvent // 通过别名获取事件

@@ -18,28 +18,25 @@ func (this *msgThreadLog) Exec(home interface{}) bool {
 }
 
 // 单独日志消息
-type msgListen struct {
-	msg  string // 消息
-	name string // 别名
-	id   uint32 // 网络会话ID
-	info string // 描述信息
+type Tmsg_net struct {
+	Msg  string // 消息
+	Name string // 别名
+	Id   uint32 // 网络会话ID
+	Info string // 描述信息
 }
 
-func (this *msgListen) Exec(home interface{}) bool {
-	home.(IThread).LogDebug("msg=%s,name=%s,session=%d,info=%s", this.msg, this.name, this.id, this.info)
-	// LogInfoPost(0, "msg=%s,name=%s,session=%d,info=%s", this.msg, this.name, this.id, this.info)
-	return true
+func (this *Tmsg_net) Exec(home interface{}) bool {
+	return home.(IThread).On_NetEvent(this)
 }
 
 // 消息节点(list节点)
-type Msg_node struct {
+type Tmsg_packet struct {
 	Len   uint32 // 包长度
 	Token uint32 // 包令牌
 	Count uint32 // 包内消息数
 	Data  []byte // 数据
 }
 
-func (this *Msg_node) Exec(home interface{}) bool {
-	LogInfoPost(0, "Msg_node")
-	return true
+func (this *Tmsg_packet) Exec(home interface{}) bool {
+	return home.(IThread).On_NetPacket(this)
 }
