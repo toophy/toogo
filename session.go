@@ -1,15 +1,8 @@
 package toogo
 
 import (
-	"fmt"
 	"io"
 	"net"
-)
-
-const (
-	maxDataLen     = 5080
-	maxSendDataLen = 4000
-	maxHeader      = 2
 )
 
 // 发送消息给唯一go程
@@ -107,7 +100,7 @@ func (this *Session) readConnData(conn *net.TCPConn) (msg Tmsg_packet, err error
 	msg.Token = uint32(header[2])
 	msg.Count = uint32(header[3])
 
-	LogWarnPost(this.MailId, "ReadConnData : len =%d, token=%d, count=%d\n", msg.Len, msg.Token, msg.Count)
+	// LogWarnPost(this.MailId, "ReadConnData : len =%d, token=%d, count=%d\n", msg.Len, msg.Token, msg.Count)
 
 	// 根据 msg.Len 分配一个 缓冲, 并读取 body
 	body_len := msg.Len - packetHeaderSize
@@ -159,9 +152,8 @@ func (this *Session) runWriter() {
 
 			t := n.Data.(*Tmsg_packet)
 
-			if t.Len > maxHeader && t.Len < maxSendDataLen {
-				fmt.Print(t.Data[:maxHeader+t.Len])
-				_, err := this.connClient.Write(t.Data[:maxHeader+t.Len])
+			if t.Len > packetHeaderSize {
+				_, err := this.connClient.Write(t.Data[:t.Len])
 				if err != nil {
 					LogWarnPost(this.MailId, err.Error())
 				}
