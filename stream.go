@@ -308,7 +308,6 @@ func (t *Stream) ReadString() string {
 		o := t.Pos
 		t.Pos = t.Pos + data_len
 		ret := string(t.Data[o : o+data_len])
-		println(ret)
 		return ret
 	}
 	panic(errors.New(fmt.Sprintf("Stream:ReadString no long[%d,%d,%d]", data_len, t.Pos+data_len, t.MaxLen)))

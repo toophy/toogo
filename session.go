@@ -1,6 +1,7 @@
 package toogo
 
 import (
+	"fmt"
 	"io"
 	"net"
 )
@@ -100,6 +101,8 @@ func (this *Session) readConnData(conn *net.TCPConn) (msg Tmsg_packet, err error
 		return
 	}
 
+	msg.SessionId = this.Id
+
 	msg.Len = (uint32(header[0])) | (uint32(header[1]) << 8)
 	msg.Token = uint32(header[2])
 	msg.Count = uint32(header[3])
@@ -157,6 +160,7 @@ func (this *Session) runWriter() {
 			t := n.Data.(*Tmsg_packet)
 
 			if t.Len > maxHeader && t.Len < maxSendDataLen {
+				fmt.Print(t.Data[:maxHeader+t.Len])
 				_, err := this.connClient.Write(t.Data[:maxHeader+t.Len])
 				if err != nil {
 					LogWarnPost(this.MailId, err.Error())

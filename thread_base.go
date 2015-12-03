@@ -11,28 +11,36 @@ import (
 
 // 线程接口
 type IThread interface {
-	Init_thread(IThread, uint32, string, int64, uint64) error // 初始化线程
-	Run_thread()                                              // 运行线程
-	Get_thread_id() uint32                                    // 获取线程ID
-	Get_thread_name() string                                  // 获取线程名称
-	Pre_close_thread()                                        // -- 只允许thread调用 : 预备关闭线程
-	On_first_run()                                            // -- 只允许thread调用 : 首次运行(在 on_run 前面)
-	On_pre_run()                                              // -- 只允许thread调用 : 线程最先运行部分
-	On_run()                                                  // -- 只允许thread调用 : 线程运行部分
-	On_end()                                                  // -- 只允许thread调用 : 线程结束回调
-	On_NetEvent(m *Tmsg_net) bool                             // -- 响应网络事件
-	On_NetPacket(m *Tmsg_packet) bool                         // -- 响应网络消息包
+	Init_thread(IThread, uint32, string, uint16, int64, uint64) error // 初始化线程
+	Run_thread()                                                      // 运行线程
+	Get_thread_id() uint32                                            // 获取线程ID
+	Get_thread_name() string                                          // 获取线程名称
+	Pre_close_thread()                                                // -- 只允许thread调用 : 预备关闭线程
+	RegistNetMsg(id uint16, f NetMsgFunc)                             // -- 注册网络消息处理函数
 
+	// 事件处理系列接口
 	PostEvent(a IEvent) bool     // 投递定时器事件
 	GetEvent(name string) IEvent // 通过别名获取事件
 	RemoveEvent(e IEvent)        // 删除事件, 只能操作本线程事件
 
+	// 日志系列接口
 	LogDebug(f string, v ...interface{}) // 线程日志 : 调试[D]级别日志
 	LogInfo(f string, v ...interface{})  // 线程日志 : 信息[I]级别日志
 	LogWarn(f string, v ...interface{})  // 线程日志 : 警告[W]级别日志
 	LogError(f string, v ...interface{}) // 线程日志 : 错误[E]级别日志
 	LogFatal(f string, v ...interface{}) // 线程日志 : 致命[F]级别日志
-	Add_log(d string)                    //增加日志信息
+
+	// 继承Thread结构, 必须实现下列接口
+	On_first_run()                // -- 只允许thread调用 : 首次运行(在 on_run 前面)
+	On_pre_run()                  // -- 只允许thread调用 : 线程最先运行部分
+	On_run()                      // -- 只允许thread调用 : 线程运行部分
+	On_end()                      // -- 只允许thread调用 : 线程结束回调
+	On_NetEvent(m *Tmsg_net) bool // -- 响应网络事件
+	On_RegistNetMsg()             // -- 注册网络消息的响应函数
+
+	// toogo库私有接口
+	procNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包
+	add_log(d string)                  //增加日志信息
 }
 
 const (
@@ -49,6 +57,9 @@ const (
 	Tid_master          = 1      // 主线程
 	Tid_last            = 16     // 最后一条重要线程
 )
+
+// 消息函数类型
+type NetMsgFunc func(p *PacketReader, sessionId uint32) bool
 
 // 线程基本功能
 type Thread struct {
@@ -78,11 +89,19 @@ type Thread struct {
 	log_FileBuff        bytes.Buffer          // 日志总缓冲, Tid_master才会使用
 	log_FileHandle      *os.File              // 日志文件, Tid_master才会使用
 	log_FlushTime       int64                 // 日志文件最后写入时间
+	netMsgProc          []NetMsgFunc          // 网络消息函数注册表
+	netMsgMaxId         uint16                // 最大网络消息ID
 }
 
 // 初始化线程(必须调用)
 // usage : Init_thread(Tid_master, "主线程", 100)
-func (this *Thread) Init_thread(self IThread, id uint32, name string, heart_time int64, lay1_time uint64) error {
+// self       : 继承者自身指针
+// id         : 申请的线程ID
+// name       : 线程别名
+// max_msg_id : 最大网络消息ID
+// heart_time : 心跳间隔(毫秒)
+// lay1_time  : 第一层支持的时间长度(毫秒)
+func (this *Thread) Init_thread(self IThread, id uint32, name string, max_msg_id uint16, heart_time int64, lay1_time uint64) error {
 	if id < Tid_master || id >= Tid_last {
 		return errors.New("[E] 线程ID超出范围 [Tid_master,Tid_last]")
 	}
@@ -153,6 +172,17 @@ func (this *Thread) Init_thread(self IThread, id uint32, name string, heart_time
 		// 第一条日志
 		this.LogDebug("          服务器{%s}启动", ToogoApp.config.AppName)
 	}
+
+	if max_msg_id < 1 {
+		panic("网络消息注册表不能为空")
+	}
+	if max_msg_id > 60000 {
+		panic("网络消息注册表最大不能超过60000")
+	}
+
+	this.netMsgMaxId = max_msg_id
+	this.netMsgProc = make([]NetMsgFunc, this.netMsgMaxId)
+	this.self.On_RegistNetMsg()
 
 	return nil
 }
@@ -511,7 +541,6 @@ func (this *Thread) logBase(level int, info string) {
 		} else {
 			s = this.log_Header[level] + info + "\n"
 		}
-		//s = strings.Replace(s, "\n", "\n"+this.log_Header[level], -1) + "\n"
 
 		if this.is_master_thread() {
 			this.log_FileBuff.WriteString(s)
@@ -530,7 +559,7 @@ func (this *Thread) logBase(level int, info string) {
 }
 
 // 增加日志到缓冲
-func (this *Thread) Add_log(d string) {
+func (this *Thread) add_log(d string) {
 	if this.is_master_thread() {
 		this.log_FileBuff.WriteString(d)
 	}
@@ -545,4 +574,34 @@ func (this *Thread) GetCurrTime() int64 {
 	}
 
 	return this.curr_time
+}
+
+// 响应网络消息包
+func (this *Thread) procNetPacket(m *Tmsg_packet) bool {
+	p := new(PacketReader)
+	p.InitReader(m.Data, uint16(m.Count))
+
+	for i := uint32(0); i < m.Count; i++ {
+		/*msg_len := */ p.ReadUint16()
+		msg_id := p.ReadUint16()
+
+		if msg_id > 0 && msg_id <= this.netMsgMaxId {
+			fc := this.netMsgProc[msg_id]
+			if fc != nil {
+				if !fc(p, m.SessionId) {
+					// Todo : 消息异常
+				}
+			} else {
+				// Todo : 消息异常
+			}
+		} else {
+			// Todo : 消息异常
+		}
+	}
+
+	return true
+}
+
+func (this *Thread) RegistNetMsg(id uint16, f NetMsgFunc) {
+	this.netMsgProc[id] = f
 }

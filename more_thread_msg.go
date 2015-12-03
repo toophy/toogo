@@ -13,7 +13,7 @@ type msgThreadLog struct {
 }
 
 func (this *msgThreadLog) Exec(home interface{}) bool {
-	home.(IThread).Add_log(this.Data)
+	home.(IThread).add_log(this.Data)
 	return true
 }
 
@@ -31,12 +31,13 @@ func (this *Tmsg_net) Exec(home interface{}) bool {
 
 // 消息节点(list节点)
 type Tmsg_packet struct {
-	Len   uint32 // 包长度
-	Token uint32 // 包令牌
-	Count uint32 // 包内消息数
-	Data  []byte // 数据
+	SessionId uint32 // 会话ID
+	Len       uint32 // 包长度
+	Token     uint32 // 包令牌
+	Count     uint32 // 包内消息数
+	Data      []byte // 数据
 }
 
 func (this *Tmsg_packet) Exec(home interface{}) bool {
-	return home.(IThread).On_NetPacket(this)
+	return home.(IThread).procNetPacket(this)
 }
