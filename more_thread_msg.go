@@ -26,7 +26,7 @@ type Tmsg_net struct {
 }
 
 func (this *Tmsg_net) Exec(home interface{}) bool {
-	return home.(IThread).On_NetEvent(this)
+	return home.(IThread).On_netEvent(this)
 }
 
 // 消息节点(list节点)

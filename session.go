@@ -47,21 +47,7 @@ func (this *Session) run() {
 
 func (this *Session) runReader() {
 	defer LeaveThread()
-
-	// 捕捉异常
-	defer func() {
-		if r := recover(); r != nil {
-			switch r.(type) {
-			case error:
-				LogWarnPost(this.MailId, "Session::runReader:"+r.(error).Error())
-			case string:
-				LogWarnPost(this.MailId, "Session::runReader:"+r.(string))
-			}
-		}
-
-		CloseSession(this.toMailId, this)
-		return
-	}()
+	defer RecoverCommon(this.MailId, "Session::runReader:")
 
 	for {
 		data, err := this.readConnData(this.connClient)
@@ -76,7 +62,7 @@ func (this *Session) runReader() {
 		}
 	}
 
-	CloseSession(this.toMailId, this)
+	CloseSession(this.toMailId, this.Id)
 }
 
 // 读取网络消息
@@ -122,21 +108,7 @@ func (this *Session) readConnData(conn *net.TCPConn) (msg Tmsg_packet, err error
 
 func (this *Session) runWriter() {
 	defer LeaveThread()
-
-	// 捕捉异常
-	defer func() {
-		if r := recover(); r != nil {
-			switch r.(type) {
-			case error:
-				LogWarnPost(this.MailId, "Session::runWriter:"+r.(error).Error())
-			case string:
-				LogWarnPost(this.MailId, "Session::runWriter:"+r.(string))
-			}
-		}
-
-		CloseSession(this.toMailId, this)
-		return
-	}()
+	defer RecoverCommon(this.MailId, "Session::runWriter:")
 
 	for {
 		header := DListNode{}
@@ -163,11 +135,11 @@ func (this *Session) runWriter() {
 		}
 	}
 
-	CloseSession(this.toMailId, this)
+	CloseSession(this.toMailId, this.Id)
 }
 
 // 通过Id获取会话对象
-func GetConnById(id uint32) *Session {
+func GetSessionById(id uint32) *Session {
 	ToogoApp.sessionMutex.RLock()
 	defer ToogoApp.sessionMutex.RUnlock()
 
@@ -179,7 +151,7 @@ func GetConnById(id uint32) *Session {
 }
 
 // 通过别名获取会话对象
-func GetConnByName(name string) *Session {
+func GetSessionByName(name string) *Session {
 	ToogoApp.sessionMutex.RLock()
 	defer ToogoApp.sessionMutex.RUnlock()
 
@@ -233,19 +205,7 @@ func Listen(tid uint32, name, net_type, address string, accpetQuit bool) {
 	EnterThread()
 	go func(tid uint32, name, net_type, address string, accpetQuit bool) {
 		defer LeaveThread()
-
-		// 捕捉异常
-		defer func() {
-			if r := recover(); r != nil {
-				switch r.(type) {
-				case error:
-					LogWarnPost(0, "Listen:"+r.(error).Error())
-				case string:
-					LogWarnPost(0, "Listen:"+r.(string))
-				}
-			}
-			return
-		}()
+		defer RecoverCommon(0, "Listen:")
 
 		if len(address) == 0 || len(address) == 0 || len(net_type) == 0 {
 			LogWarnPost(0, "listen failed")
@@ -303,19 +263,7 @@ func Connect(tid uint32, name, net_type, address string) {
 	EnterThread()
 	go func(tid uint32, name, net_type, address string) {
 		defer LeaveThread()
-
-		// 捕捉异常
-		defer func() {
-			if r := recover(); r != nil {
-				switch r.(type) {
-				case error:
-					LogWarnPost(0, "Connect:"+r.(error).Error())
-				case string:
-					LogWarnPost(0, "Connect:"+r.(string))
-				}
-			}
-			return
-		}()
+		defer RecoverCommon(0, "Connect:")
 
 		if len(address) == 0 || len(net_type) == 0 || len(name) == 0 {
 			PostThreadMsg(tid, &Tmsg_net{"connect failed", name, 0, "listen failed"})
@@ -345,41 +293,34 @@ func Connect(tid uint32, name, net_type, address string) {
 // 关闭一个会话
 // tid      : 关联线程
 // s        : 会话对象
-func CloseSession(tid uint32, s *Session) {
+func CloseSession(tid uint32, sessionId uint32) {
 	EnterThread()
-	go func(tid uint32, s *Session) {
+	go func(tid uint32, sessionId uint32) {
 		defer LeaveThread()
 
-		// 捕捉异常
-		defer func() {
-			if r := recover(); r != nil {
-				switch r.(type) {
-				case error:
-					LogWarnPost(0, "CloseSession:"+r.(error).Error())
-				case string:
-					LogWarnPost(0, "CloseSession:"+r.(string))
-				}
+		s := GetSessionById(sessionId)
+		if s != nil {
+			defer RecoverCommon(s.MailId, "CloseSession:")
+
+			PostThreadMsg(tid, &Tmsg_net{"pre close", s.Name, s.Id, ""})
+
+			var err error
+
+			switch s.typeName {
+			case "listen":
+				err = s.connListen.Close()
+			case "conn":
+				err = s.connClient.Close()
 			}
-			return
-		}()
 
-		PostThreadMsg(tid, &Tmsg_net{"pre close", s.Name, s.Id, ""})
+			if err != nil {
+				PostThreadMsg(tid, &Tmsg_net{"close failed", s.Name, s.Id, err.Error()})
+			} else {
+				PostThreadMsg(tid, &Tmsg_net{"close ok", s.Name, s.Id, ""})
+			}
 
-		var err error
-
-		switch s.typeName {
-		case "listen":
-			err = s.connListen.Close()
-		case "conn":
-			err = s.connClient.Close()
+			delSession(s.Id)
 		}
 
-		if err != nil {
-			PostThreadMsg(tid, &Tmsg_net{"close failed", s.Name, s.Id, err.Error()})
-		} else {
-			PostThreadMsg(tid, &Tmsg_net{"close ok", s.Name, s.Id, ""})
-		}
-
-		delSession(s.Id)
-	}(tid, s)
+	}(tid, sessionId)
 }

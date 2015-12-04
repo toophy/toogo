@@ -105,3 +105,18 @@ func RecoverWrite(msgId uint16) {
 		LogWarnPost(0, "RecoverWrite,%d,%s", msgId, r.(error).Error())
 	}
 }
+
+// 通用捕捉异常
+func RecoverCommon(mailId uint32, flag string) {
+	// 捕捉异常
+	defer func() {
+		if r := recover(); r != nil {
+			switch r.(type) {
+			case error:
+				LogWarnPost(mailId, flag+r.(error).Error())
+			case string:
+				LogWarnPost(mailId, flag+r.(string))
+			}
+		}
+	}()
+}

@@ -31,12 +31,13 @@ type IThread interface {
 	LogFatal(f string, v ...interface{}) // 线程日志 : 致命[F]级别日志
 
 	// 继承Thread结构, 必须实现下列接口
-	On_first_run()                // -- 只允许thread调用 : 首次运行(在 on_run 前面)
-	On_pre_run()                  // -- 只允许thread调用 : 线程最先运行部分
-	On_run()                      // -- 只允许thread调用 : 线程运行部分
-	On_end()                      // -- 只允许thread调用 : 线程结束回调
-	On_NetEvent(m *Tmsg_net) bool // -- 响应网络事件
-	On_RegistNetMsg()             // -- 注册网络消息的响应函数
+	On_firstRun()                  // -- 只允许thread调用 : 首次运行(在 on_run 前面)
+	On_preRun()                    // -- 只允许thread调用 : 线程最先运行部分
+	On_run()                       // -- 只允许thread调用 : 线程运行部分
+	On_end()                       // -- 只允许thread调用 : 线程结束回调
+	On_netEvent(m *Tmsg_net) bool  // -- 响应网络事件
+	On_registNetMsg()              // -- 注册网络消息的响应函数
+	On_packetError(m *Tmsg_packet) // -- 当网络消息包解析出现问题, 如何处理?
 
 	// toogo库私有接口
 	procNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包
@@ -182,7 +183,7 @@ func (this *Thread) Init_thread(self IThread, id uint32, name string, max_msg_id
 
 	this.netMsgMaxId = max_msg_id
 	this.netMsgProc = make([]NetMsgFunc, this.netMsgMaxId)
-	this.self.On_RegistNetMsg()
+	this.self.On_registNetMsg()
 
 	return nil
 }
@@ -195,19 +196,7 @@ func (this *Thread) Run_thread() {
 	EnterThread()
 	go func() {
 		defer LeaveThread()
-
-		// 捕捉异常
-		defer func() {
-			if r := recover(); r != nil {
-				switch r.(type) {
-				case error:
-					fmt.Println("Thread::Run_thread:" + r.(error).Error())
-				case string:
-					fmt.Println("Thread::Run_thread:" + r.(string))
-				}
-			}
-			// 需要把 panic 信息 写入文件中
-		}()
+		defer RecoverCommon(this.id, "Thread::Run_thread:")
 
 		this.start_time = time.Now().UnixNano()
 		this.last_time = this.start_time
@@ -217,7 +206,7 @@ func (this *Thread) Run_thread() {
 		this.log_TimeString = time.Now().Format("15:04:05")
 		this.MakeLogHeader()
 
-		this.self.On_first_run()
+		this.self.On_firstRun()
 
 		for {
 
@@ -240,7 +229,7 @@ func (this *Thread) Run_thread() {
 				}
 			}
 
-			this.self.On_pre_run()
+			this.self.On_preRun()
 
 			this.runThreadMsg()
 			this.runEvents()
@@ -577,29 +566,58 @@ func (this *Thread) GetCurrTime() int64 {
 }
 
 // 响应网络消息包
-func (this *Thread) procNetPacket(m *Tmsg_packet) bool {
+func (this *Thread) procNetPacket(m *Tmsg_packet) (ret bool) {
+
+	errMsg := ""
+
+	defer func() {
+		if !ret {
+			if len(errMsg) > 0 {
+				this.LogWarn(errMsg)
+			}
+			this.self.On_packetError(m)
+		}
+	}()
+
+	defer RecoverCommon(this.id, "Thread::procNetPacket:")
+
 	p := new(PacketReader)
 	p.InitReader(m.Data, uint16(m.Count))
 
 	for i := uint32(0); i < m.Count; i++ {
-		/*msg_len := */ p.ReadUint16()
-		msg_id := p.ReadUint16()
+		old_pos := p.GetPos()
+		msg_len, errLen := p.XReadUint16()
+		msg_id, errId := p.XReadUint16()
 
-		if msg_id > 0 && msg_id <= this.netMsgMaxId {
-			fc := this.netMsgProc[msg_id]
-			if fc != nil {
-				if !fc(p, m.SessionId) {
-					// Todo : 消息异常
-				}
-			} else {
-				// Todo : 消息异常
-			}
-		} else {
-			// Todo : 消息异常
+		if !errLen || !errId {
+			errMsg = "读取消息头失败"
+			return
+		}
+
+		if msg_len < packetHeaderSize || uint64(msg_len) > p.GetMaxLen()-old_pos {
+			errMsg = "消息长度无效"
+			return
+		}
+
+		if msg_id >= this.netMsgMaxId {
+			errMsg = "消息ID无效"
+			return
+		}
+
+		fc := this.netMsgProc[msg_id]
+		if fc == nil {
+			errMsg = "消息没有对应处理函数"
+			return
+		}
+
+		if !fc(p, m.SessionId) {
+			errMsg = "读取消息体失败"
+			return
 		}
 	}
 
-	return true
+	ret = true
+	return
 }
 
 func (this *Thread) RegistNetMsg(id uint16, f NetMsgFunc) {

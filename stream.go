@@ -313,6 +313,37 @@ func (t *Stream) ReadString() string {
 	panic(errors.New(fmt.Sprintf("Stream:ReadString no long[%d,%d,%d]", data_len, t.Pos+data_len, t.MaxLen)))
 }
 
+func (t *Stream) XReadUint8() (uint8, bool) {
+	if t.Pos < t.MaxLen {
+		o := t.Pos
+		t.Pos = t.Pos + 1
+		return uint8(t.Data[o]), true
+	}
+	return 0, false
+}
+
+func (t *Stream) XReadUint16() (uint16, bool) {
+	if t.Pos+1 < t.MaxLen {
+		o := t.Pos
+		t.Pos = t.Pos + 2
+		return (uint16(t.Data[o])) |
+			(uint16(t.Data[o+1]) << 8), true
+	}
+	return 0, false
+}
+
+func (t *Stream) XReadUint32() (uint32, bool) {
+	if t.Pos+3 < t.MaxLen {
+		o := t.Pos
+		t.Pos = t.Pos + 4
+		return (uint32(t.Data[o])) |
+			(uint32(t.Data[o+1]) << 8) |
+			(uint32(t.Data[o+2]) << 16) |
+			(uint32(t.Data[o+3]) << 24), true
+	}
+	return 0, false
+}
+
 func (t *Stream) WriteBool(d bool) {
 	if t.Pos+1 < t.MaxLen {
 		if d {
