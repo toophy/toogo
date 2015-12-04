@@ -1,7 +1,9 @@
 package toogo
 
 const (
-	packetHeaderSize = 4 // 消息包头大小,Len + Count + key : 4字节
+	packetHeaderSize    = 4 // 小消息包头大小,Len + Count + key : 4字节
+	packetBigHeaderSize = 5 // 大消息包头大小,Len + Count : 5字节
+	msgHeaderSize       = 4 // 消息头, Len + MsgId : 4字节
 )
 
 // 操作网络封包
@@ -48,7 +50,7 @@ func (this *PacketWriter) InitWriter(d []byte) {
 // 写入消息ID
 func (this *PacketWriter) WriteMsgId(id uint16) {
 	this.MsgID = id
-	this.Pos = this.Pos + packetHeaderSize
+	this.Pos = this.Pos + msgHeaderSize
 }
 
 // 写入一个消息

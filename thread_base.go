@@ -40,8 +40,10 @@ type IThread interface {
 	On_packetError(m *Tmsg_packet) // -- 当网络消息包解析出现问题, 如何处理?
 
 	// toogo库私有接口
-	procNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包
-	add_log(d string)                  //增加日志信息
+	procCGNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是CG类型
+	procSSNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是SS类型
+	procSGNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是SG类型
+	add_log(d string)                    //增加日志信息
 }
 
 const (
@@ -565,8 +567,12 @@ func (this *Thread) GetCurrTime() int64 {
 	return this.curr_time
 }
 
+func (this *Thread) RegistNetMsg(id uint16, f NetMsgFunc) {
+	this.netMsgProc[id] = f
+}
+
 // 响应网络消息包
-func (this *Thread) procNetPacket(m *Tmsg_packet) (ret bool) {
+func (this *Thread) procCGNetPacket(m *Tmsg_packet) (ret bool) {
 
 	errMsg := ""
 
@@ -579,7 +585,7 @@ func (this *Thread) procNetPacket(m *Tmsg_packet) (ret bool) {
 		}
 	}()
 
-	defer RecoverCommon(this.id, "Thread::procNetPacket:")
+	defer RecoverCommon(this.id, "Thread::procCGNetPacket:")
 
 	p := new(PacketReader)
 	p.InitReader(m.Data, uint16(m.Count))
@@ -594,7 +600,7 @@ func (this *Thread) procNetPacket(m *Tmsg_packet) (ret bool) {
 			return
 		}
 
-		if msg_len < packetHeaderSize || uint64(msg_len) > p.GetMaxLen()-old_pos {
+		if msg_len < msgHeaderSize || uint64(msg_len) > p.GetMaxLen()-old_pos {
 			errMsg = "消息长度无效"
 			return
 		}
@@ -620,6 +626,121 @@ func (this *Thread) procNetPacket(m *Tmsg_packet) (ret bool) {
 	return
 }
 
-func (this *Thread) RegistNetMsg(id uint16, f NetMsgFunc) {
-	this.netMsgProc[id] = f
+// 响应SS网络消息包
+func (this *Thread) procSSNetPacket(m *Tmsg_packet) (ret bool) {
+
+	errMsg := ""
+
+	defer func() {
+		if !ret {
+			if len(errMsg) > 0 {
+				this.LogWarn(errMsg)
+			}
+			this.self.On_packetError(m)
+		}
+	}()
+
+	defer RecoverCommon(this.id, "Thread::procSSNetPacket:")
+
+	p := new(PacketReader)
+	p.InitReader(m.Data, uint16(m.Count))
+
+	for i := uint32(0); i < m.Count; i++ {
+		old_pos := p.GetPos()
+		msg_len, errLen := p.XReadUint16()
+		msg_id, errId := p.XReadUint16()
+
+		if !errLen || !errId {
+			errMsg = "读取消息头失败"
+			return
+		}
+
+		if msg_len < msgHeaderSize || uint64(msg_len) > p.GetMaxLen()-old_pos {
+			errMsg = "消息长度无效"
+			return
+		}
+
+		if msg_id >= this.netMsgMaxId {
+			errMsg = "消息ID无效"
+			return
+		}
+
+		fc := this.netMsgProc[msg_id]
+		if fc == nil {
+			errMsg = "消息没有对应处理函数"
+			return
+		}
+
+		if !fc(p, m.SessionId) {
+			errMsg = "读取消息体失败"
+			return
+		}
+	}
+
+	ret = true
+	return
+}
+
+// 响应SS网络消息包
+// 这个消息包, 里面是子消息包
+func (this *Thread) procSGNetPacket(m *Tmsg_packet) (ret bool) {
+
+	errMsg := ""
+
+	defer func() {
+		if !ret {
+			if len(errMsg) > 0 {
+				this.LogWarn(errMsg)
+			}
+			this.self.On_packetError(m)
+		}
+	}()
+
+	defer RecoverCommon(this.id, "Thread::procSGNetPacket:")
+
+	p := new(PacketReader)
+	p.InitReader(m.Data, uint16(m.Count))
+
+	// 包一层消息包
+	//
+	for i := 0; i < m.Count; i++ {
+		// 子消息包头
+		packet_len, errPLen := p.XReadUint24()
+		msg_count, errPCount := p.XReadUint16()
+
+		for k := uint16(0); k < msg_count; k++ {
+			old_pos := p.GetPos()
+			msg_len, errLen := p.XReadUint16()
+			msg_id, errId := p.XReadUint16()
+
+			if !errLen || !errId {
+				errMsg = "读取消息头失败"
+				return
+			}
+
+			if msg_len < msgHeaderSize || uint64(msg_len) > p.GetMaxLen()-old_pos {
+				errMsg = "消息长度无效"
+				return
+			}
+
+			if msg_id >= this.netMsgMaxId {
+				errMsg = "消息ID无效"
+				return
+			}
+
+			fc := this.netMsgProc[msg_id]
+			if fc == nil {
+				errMsg = "消息没有对应处理函数"
+				return
+			}
+
+			if !fc(p, m.SessionId) {
+				errMsg = "读取消息体失败"
+				return
+			}
+		}
+	}
+
+	ret = true
+	return
 }

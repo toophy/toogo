@@ -31,13 +31,22 @@ func (this *Tmsg_net) Exec(home interface{}) bool {
 
 // 消息节点(list节点)
 type Tmsg_packet struct {
-	SessionId uint32 // 会话ID
-	Len       uint32 // 包长度
-	Token     uint32 // 包令牌
-	Count     uint32 // 包内消息数
-	Data      []byte // 数据
+	SessionId  uint32 // 会话ID
+	Len        uint32 // 包长度
+	Token      uint32 // 包令牌
+	Count      uint16 // 包内消息数
+	PacketType uint16 // 会话类型
+	Data       []byte // 数据
 }
 
 func (this *Tmsg_packet) Exec(home interface{}) bool {
-	return home.(IThread).procNetPacket(this)
+	if this.PacketType == SessionPacket_CG {
+		return home.(IThread).procCGNetPacket(this)
+	} else if this.PacketType == SessionPacket_SS {
+		return home.(IThread).procSSNetPacket(this)
+	} else if this.PacketType == SessionPacket_SG {
+		return home.(IThread).procSGNetPacket(this)
+	}
+
+	return false
 }

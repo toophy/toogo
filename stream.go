@@ -332,6 +332,19 @@ func (t *Stream) XReadUint16() (uint16, bool) {
 	return 0, false
 }
 
+func (t *Stream) XReadUint24() (uint32, bool) {
+	if t.Pos+2 < t.MaxLen {
+		o := t.Pos
+		t.Pos = t.Pos + 3
+
+		return (uint32(t.Data[o])) |
+			(uint32(t.Data[o+1]) << 8) |
+			(uint32(t.Data[o+2]&0x7F) << 16) |
+			(uint32(t.Data[o+2]&0x80) << 24), true
+	}
+	return 0, false
+}
+
 func (t *Stream) XReadUint32() (uint32, bool) {
 	if t.Pos+3 < t.MaxLen {
 		o := t.Pos
