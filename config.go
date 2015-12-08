@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // toogo服务器引擎App
@@ -30,14 +31,16 @@ type listenPort struct {
 	Name       string // 别称
 	Address    string // 侦探所在IP地址和端口
 	NetType    string // tcp | udp
+	PacketType uint16 // CG | SS | SG
 	AcceptQuit bool   // Accept失败退出
 }
 
 // 远程连接端口
 type connectPort struct {
-	Name    string // 别称
-	Address string // 侦探所在IP地址和端口
-	NetType string // tcp | udp
+	Name       string // 别称
+	Address    string // 侦探所在IP地址和端口
+	NetType    string // tcp | udp
+	PacketType uint16 // CG | SS | SG
 }
 
 func init() {
@@ -86,6 +89,15 @@ func init() {
 				lp := listenPort{Name: name, Address: address}
 				lp.NetType = cc.DefaultString(sec+"NetType", "tcp")
 				lp.AcceptQuit = cc.DefaultBool(sec+"AcceptQuit", true)
+				pt := cc.DefaultString(sec+"PacketType", "CG")
+				switch strings.ToUpper(pt) {
+				case "CG":
+					lp.PacketType = SessionPacket_CG
+				case "SS":
+					lp.PacketType = SessionPacket_SS
+				case "SG":
+					lp.PacketType = SessionPacket_SG
+				}
 				cfg.ListenPorts[name] = lp
 			}
 		}
@@ -100,6 +112,15 @@ func init() {
 			if len(address) > 0 {
 				lp := connectPort{Name: name, Address: address}
 				lp.NetType = cc.DefaultString(sec+"NetType", "tcp")
+				pt := cc.DefaultString(sec+"PacketType", "CG")
+				switch strings.ToUpper(pt) {
+				case "CG":
+					lp.PacketType = SessionPacket_CG
+				case "SS":
+					lp.PacketType = SessionPacket_SS
+				case "SG":
+					lp.PacketType = SessionPacket_SG
+				}
 				cfg.ConnectPorts[name] = lp
 			}
 		}

@@ -357,6 +357,22 @@ func (t *Stream) XReadUint32() (uint32, bool) {
 	return 0, false
 }
 
+func (t *Stream) XReadUint64() (uint32, bool) {
+	if t.Pos+7 < t.MaxLen {
+		o := t.Pos
+		t.Pos = t.Pos + 8
+		return (uint64(t.Data[o])) |
+			(uint64(t.Data[o+1]) << 8) |
+			(uint64(t.Data[o+2]) << 16) |
+			(uint64(t.Data[o+3]) << 24) |
+			(uint64(t.Data[o+4]) << 32) |
+			(uint64(t.Data[o+5]) << 40) |
+			(uint64(t.Data[o+6]) << 48) |
+			(uint64(t.Data[o+7]) << 56), true
+	}
+	return 0, false
+}
+
 func (t *Stream) WriteBool(d bool) {
 	if t.Pos+1 < t.MaxLen {
 		if d {

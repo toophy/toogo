@@ -31,19 +31,19 @@ type IThread interface {
 	LogFatal(f string, v ...interface{}) // 线程日志 : 致命[F]级别日志
 
 	// 继承Thread结构, 必须实现下列接口
-	On_firstRun()                  // -- 只允许thread调用 : 首次运行(在 on_run 前面)
-	On_preRun()                    // -- 只允许thread调用 : 线程最先运行部分
-	On_run()                       // -- 只允许thread调用 : 线程运行部分
-	On_end()                       // -- 只允许thread调用 : 线程结束回调
-	On_netEvent(m *Tmsg_net) bool  // -- 响应网络事件
-	On_registNetMsg()              // -- 注册网络消息的响应函数
-	On_packetError(m *Tmsg_packet) // -- 当网络消息包解析出现问题, 如何处理?
+	On_firstRun()                    // -- 只允许thread调用 : 首次运行(在 on_run 前面)
+	On_preRun()                      // -- 只允许thread调用 : 线程最先运行部分
+	On_run()                         // -- 只允许thread调用 : 线程运行部分
+	On_end()                         // -- 只允许thread调用 : 线程结束回调
+	On_netEvent(m *Tmsg_net) bool    // -- 响应网络事件
+	On_registNetMsg()                // -- 注册网络消息的响应函数
+	On_packetError(sessionId uint32) // -- 当网络消息包解析出现问题, 如何处理?
 
 	// toogo库私有接口
-	procCGNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是CG类型
-	procSSNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是SS类型
-	procSGNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是SG类型
-	add_log(d string)                    //增加日志信息
+	procCGNetPacket(m *Tmsg_cg_packet) bool // -- 响应网络消息包 Session是CG类型
+	procSSNetPacket(m *Tmsg_ss_packet) bool // -- 响应网络消息包 Session是SS类型
+	procSGNetPacket(m *Tmsg_sg_packet) bool // -- 响应网络消息包 Session是SG类型
+	add_log(d string)                       //增加日志信息
 }
 
 const (
@@ -572,7 +572,7 @@ func (this *Thread) RegistNetMsg(id uint16, f NetMsgFunc) {
 }
 
 // 响应网络消息包
-func (this *Thread) procCGNetPacket(m *Tmsg_packet) (ret bool) {
+func (this *Thread) procCGNetPacket(m *Tmsg_cg_packet) (ret bool) {
 
 	errMsg := ""
 
@@ -581,7 +581,7 @@ func (this *Thread) procCGNetPacket(m *Tmsg_packet) (ret bool) {
 			if len(errMsg) > 0 {
 				this.LogWarn(errMsg)
 			}
-			this.self.On_packetError(m)
+			this.self.On_packetError(m.SessionId)
 		}
 	}()
 
@@ -590,7 +590,7 @@ func (this *Thread) procCGNetPacket(m *Tmsg_packet) (ret bool) {
 	p := new(PacketReader)
 	p.InitReader(m.Data, uint16(m.Count))
 
-	for i := uint32(0); i < m.Count; i++ {
+	for i := uint16(0); i < m.Count; i++ {
 		old_pos := p.GetPos()
 		msg_len, errLen := p.XReadUint16()
 		msg_id, errId := p.XReadUint16()
@@ -627,7 +627,7 @@ func (this *Thread) procCGNetPacket(m *Tmsg_packet) (ret bool) {
 }
 
 // 响应SS网络消息包
-func (this *Thread) procSSNetPacket(m *Tmsg_packet) (ret bool) {
+func (this *Thread) procSSNetPacket(m *Tmsg_ss_packet) (ret bool) {
 
 	errMsg := ""
 
@@ -636,7 +636,7 @@ func (this *Thread) procSSNetPacket(m *Tmsg_packet) (ret bool) {
 			if len(errMsg) > 0 {
 				this.LogWarn(errMsg)
 			}
-			this.self.On_packetError(m)
+			this.self.On_packetError(m.SessionId)
 		}
 	}()
 
@@ -645,7 +645,7 @@ func (this *Thread) procSSNetPacket(m *Tmsg_packet) (ret bool) {
 	p := new(PacketReader)
 	p.InitReader(m.Data, uint16(m.Count))
 
-	for i := uint32(0); i < m.Count; i++ {
+	for i := uint16(0); i < m.Count; i++ {
 		old_pos := p.GetPos()
 		msg_len, errLen := p.XReadUint16()
 		msg_id, errId := p.XReadUint16()
@@ -683,7 +683,7 @@ func (this *Thread) procSSNetPacket(m *Tmsg_packet) (ret bool) {
 
 // 响应SS网络消息包
 // 这个消息包, 里面是子消息包
-func (this *Thread) procSGNetPacket(m *Tmsg_packet) (ret bool) {
+func (this *Thread) procSGNetPacket(m *Tmsg_sg_packet) (ret bool) {
 
 	errMsg := ""
 
@@ -692,7 +692,7 @@ func (this *Thread) procSGNetPacket(m *Tmsg_packet) (ret bool) {
 			if len(errMsg) > 0 {
 				this.LogWarn(errMsg)
 			}
-			this.self.On_packetError(m)
+			this.self.On_packetError(m.SessionId)
 		}
 	}()
 
@@ -703,10 +703,14 @@ func (this *Thread) procSGNetPacket(m *Tmsg_packet) (ret bool) {
 
 	// 包一层消息包
 	//
-	for i := 0; i < m.Count; i++ {
+	for i := uint16(0); i < m.Count; i++ {
 		// 子消息包头
 		packet_len, errPLen := p.XReadUint24()
 		msg_count, errPCount := p.XReadUint16()
+		if !errPLen || !errPCount || packet_len <= 0 {
+			errMsg = "读取消息包头失败"
+			return
+		}
 
 		for k := uint16(0); k < msg_count; k++ {
 			old_pos := p.GetPos()

@@ -77,3 +77,15 @@ func (this *PacketWriter) PacketWriteOver() {
 	this.WriteUint32(header)
 	this.Pos = old_pos
 }
+
+// 结束一个大封包
+func (this *PacketWriter) PacketBigWriteOver(flag uint64) {
+	packet_len := uint32(this.Pos)
+
+	old_pos := this.Pos
+	this.Pos = 0
+	this.WriteUint24(packet_len)
+	this.WriteUint16(this.Count)
+	this.WriteUint64(flag)
+	this.Pos = old_pos
+}

@@ -1,6 +1,8 @@
 package toogo
 
 import (
+	// "errors"
+	"fmt"
 	"io"
 	"net"
 )
@@ -19,7 +21,7 @@ const (
 // 邮箱在哪里? ReadSilk决定还是网络端口决定?
 // 由ReadSilk决定更能解耦网络端口
 type Session struct {
-	Id         uint32           // 会话ID
+	SessionId  uint32           // 会话ID
 	MailId     uint32           // 邮箱ID
 	toMailId   uint32           // 目标邮箱ID, 接收到消息都转发到这个邮箱
 	PacketType uint16           // 数据包类型:CG,SS,SG
@@ -30,8 +32,8 @@ type Session struct {
 	connListen *net.TCPListener // 侦听连接
 }
 
-func (this *Session) initListen(typ uint32, tid uint32, address string, conn *net.TCPListener) {
-	this.Type = typ
+func (this *Session) initListen(typ uint16, tid uint32, address string, conn *net.TCPListener) {
+	this.PacketType = typ
 	this.ConnType = SessionConn_Listen
 	this.MailId, _ = GetThreadMsgs().AllocId()
 	this.toMailId = tid
@@ -39,8 +41,8 @@ func (this *Session) initListen(typ uint32, tid uint32, address string, conn *ne
 	this.connListen = conn
 }
 
-func (this *Session) initConn(typ uint32, tid uint32, address string, conn *net.TCPConn) {
-	this.Type = typ
+func (this *Session) initConn(typ uint16, tid uint32, address string, conn *net.TCPConn) {
+	this.PacketType = typ
 	this.ConnType = SessionConn_Connect
 	this.MailId, _ = GetThreadMsgs().AllocId()
 	this.toMailId = tid
@@ -48,85 +50,93 @@ func (this *Session) initConn(typ uint32, tid uint32, address string, conn *net.
 	this.connClient = conn
 }
 
+func (this *Session) GetIPAddress() string {
+	return this.ipAddress
+}
+
 func (this *Session) run() {
-	if this.Type == SessionPacket_CG {
+	switch this.PacketType {
+	case SessionPacket_CG:
 		EnterThread()
-		go this.runReader()
+		go this.runCGReader()
+		EnterThread()
+		go this.runCGWriter()
 
+	case SessionPacket_SS:
 		EnterThread()
-		go this.runWriter()
-	} else {
+		go this.runSSReader()
 		EnterThread()
-		go this.runBigReader()
+		go this.runSSWriter()
 
+	case SessionPacket_SG:
 		EnterThread()
-		go this.runBigWriter()
+		go this.runSGReader()
+		EnterThread()
+		go this.runSGWriter()
 	}
 }
 
-func (this *Session) runReader() {
+const (
+	pckCGHeaderSize = 4  // CG 类型包头长度
+	pckSSHeaderSize = 4  // SS 类型包头长度
+	pckSGHeaderSize = 13 // SG 类型包头长度
+)
+
+func (this *Session) runCGReader() {
 	defer LeaveThread()
-	defer RecoverCommon(this.MailId, "Session::runReader:")
+	defer RecoverCommon(this.MailId, "Session::runCGReader:")
+
+	var err error
+	header := make([]byte, pckCGHeaderSize)
+	var length int
+	var xStream Stream
+	xStream.Init(header)
 
 	for {
-		data, err := this.readConnData(this.connClient)
+		length, err = io.ReadFull(this.connClient, header[:])
 
-		if err == nil {
-			// 校验 data.Token, 拆包, 解密, 分别处理消息
-			// 解密后, data大小不会有多大变化(只会变小)
-			PostThreadMsg(this.toMailId, &data)
-		} else {
-			PostThreadMsg(this.toMailId, &Tmsg_net{"read failed", this.Name, this.Id, err.Error()})
+		if length != pckCGHeaderSize || err != nil {
+			if err == nil {
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, fmt.Sprintf("Net packet header : %d != %d\n", length, pckCGHeaderSize)})
+			} else {
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, err.Error()})
+			}
 			break
 		}
+
+		msg := new(Tmsg_cg_packet)
+		msg.SessionId = this.SessionId
+		msg.PacketType = this.PacketType
+
+		xStream.Seek(0)
+		msg.Len = uint32(xStream.ReadUint16())
+		msg.Token = uint32(xStream.ReadUint8())
+		msg.Count = uint16(xStream.ReadUint8())
+
+		// 根据 msg.Len 分配一个 缓冲, 并读取 body
+		body_len := msg.Len - pckCGHeaderSize
+		buf := make([]byte, body_len)
+		length, err = io.ReadFull(this.connClient, buf[:])
+		if length != int(body_len) || err != nil {
+			if err == nil {
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, fmt.Sprintf("Net packet body : %d != %d\n", length, body_len)})
+			} else {
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, err.Error()})
+			}
+			break
+		}
+
+		msg.Data = buf
+
+		PostThreadMsg(this.toMailId, msg)
 	}
 
-	CloseSession(this.toMailId, this.Id)
+	CloseSession(this.toMailId, this.SessionId)
 }
 
-// 读取网络消息
-func (this *Session) readConnData(conn *net.TCPConn) (msg Tmsg_packet, err error) {
-
-	var header [packetHeaderSize]byte
-	var length int
-	length, err = io.ReadFull(conn, header[:])
-
-	if length != packetHeaderSize {
-		LogWarnPost(this.MailId, "Net packet header : %d != %d\n", length, packetHeaderSize)
-		return
-	}
-	if err != nil {
-		return
-	}
-
-	msg.SessionId = this.Id
-	msg.PacketType = this.PacketType
-
-	msg.Len = (uint32(header[0])) | (uint32(header[1]) << 8)
-	msg.Token = uint32(header[2])
-	msg.Count = uint32(header[3])
-
-	// 根据 msg.Len 分配一个 缓冲, 并读取 body
-	body_len := msg.Len - packetHeaderSize
-	buf := make([]byte, body_len)
-	length, err = io.ReadFull(conn, buf[:])
-	if length != int(body_len) {
-		LogWarnPost(this.MailId, "Net packet body : %d != %d\n", length, body_len)
-		return
-	}
-	if err != nil {
-		LogWarnPost(this.MailId, "Seesion read body : readlen=%d , body=%d\n", length, body_len)
-		return
-	}
-
-	msg.Data = buf
-
-	return
-}
-
-func (this *Session) runWriter() {
+func (this *Session) runCGWriter() {
 	defer LeaveThread()
-	defer RecoverCommon(this.MailId, "Session::runWriter:")
+	defer RecoverCommon(this.MailId, "Session::runCGWriter:")
 
 	for {
 		header := DListNode{}
@@ -140,12 +150,19 @@ func (this *Session) runWriter() {
 				break
 			}
 
-			t := n.Data.(*Tmsg_packet)
+			t := n.Data.(*Tmsg_cg_packet)
 
-			if t.Len > packetHeaderSize {
-				_, err := this.connClient.Write(t.Data[:t.Len])
-				if err != nil {
-					LogWarnPost(this.MailId, err.Error())
+			if t.Len > pckCGHeaderSize {
+				start_pos := 0
+				for i := 0; i < 20; i++ {
+					wLen, err := this.connClient.Write(t.Data[start_pos:t.Len])
+					if err != nil {
+						LogWarnPost(this.MailId, err.Error())
+						break
+					}
+					if uint32(wLen) < t.Len {
+						start_pos = wLen
+					}
 				}
 			}
 
@@ -153,71 +170,64 @@ func (this *Session) runWriter() {
 		}
 	}
 
-	CloseSession(this.toMailId, this.Id)
+	CloseSession(this.toMailId, this.SessionId)
 }
 
-func (this *Session) runBigReader() {
+func (this *Session) runSSReader() {
 	defer LeaveThread()
-	defer RecoverCommon(this.MailId, "Session::runBigReader:")
+	defer RecoverCommon(this.MailId, "Session::runSSReader:")
+
+	var err error
+	header := make([]byte, pckSSHeaderSize)
+	var length int
+	var xStream Stream
+	xStream.Init(header)
 
 	for {
-		data, err := this.readBigConnData(this.connClient)
+		length, err = io.ReadFull(this.connClient, header[:])
 
-		if err == nil {
-			// 校验 data.Token, 拆包, 解密, 分别处理消息
-			// 解密后, data大小不会有多大变化(只会变小)
-			PostThreadMsg(this.toMailId, &data)
-		} else {
-			PostThreadMsg(this.toMailId, &Tmsg_net{"read failed", this.Name, this.Id, err.Error()})
+		if length != pckSSHeaderSize || err != nil {
+			if err == nil {
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, fmt.Sprintf("Net packet header : %d != %d\n", length, pckSSHeaderSize)})
+			} else {
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, err.Error()})
+			}
 			break
 		}
+
+		msg := new(Tmsg_ss_packet)
+		msg.SessionId = this.SessionId
+		msg.PacketType = this.PacketType
+
+		xStream.Seek(0)
+		msg.Len = uint32(xStream.ReadUint16())
+		msg.Token = uint32(xStream.ReadUint8())
+		msg.Count = uint16(xStream.ReadUint8())
+
+		// 根据 msg.Len 分配一个 缓冲, 并读取 body
+		body_len := msg.Len - pckSSHeaderSize
+		buf := make([]byte, body_len)
+		length, err = io.ReadFull(this.connClient, buf[:])
+		if length != int(body_len) || err != nil {
+			if err == nil {
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, fmt.Sprintf("Net packet body : %d != %d\n", length, body_len)})
+			} else {
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, err.Error()})
+			}
+			break
+		}
+
+		msg.Data = buf
+
+		PostThreadMsg(this.toMailId, msg)
 	}
 
-	CloseSession(this.toMailId, this.Id)
+	CloseSession(this.toMailId, this.SessionId)
 }
 
-// 读取网络消息
-func (this *Session) readBigConnData(conn *net.TCPConn) (msg Tmsg_packet, err error) {
-
-	var header [packetBigHeaderSize]byte
-	var length int
-	length, err = io.ReadFull(conn, header[:])
-
-	if length != packetBigHeaderSize {
-		LogWarnPost(this.MailId, "Net packet header : %d != %d\n", length, packetBigHeaderSize)
-		return
-	}
-	if err != nil {
-		return
-	}
-
-	msg.SessionId = this.Id
-	msg.PacketType = this.PacketType
-
-	msg.Len = uint32(header[0]) | (uint32(header[1]) << 8) | (uint32(header[2]) << 16)
-	msg.Count = (uint32(header[3])) | (uint32(header[4]) << 8)
-
-	// 根据 msg.Len 分配一个 缓冲, 并读取 body
-	body_len := msg.Len - packetBigHeaderSize
-	buf := make([]byte, body_len)
-	length, err = io.ReadFull(conn, buf[:])
-	if length != int(body_len) {
-		LogWarnPost(this.MailId, "Net packet body : %d != %d\n", length, body_len)
-		return
-	}
-	if err != nil {
-		LogWarnPost(this.MailId, "Seesion read body : readlen=%d , body=%d\n", length, body_len)
-		return
-	}
-
-	msg.Data = buf
-
-	return
-}
-
-func (this *Session) runBigWriter() {
+func (this *Session) runSSWriter() {
 	defer LeaveThread()
-	defer RecoverCommon(this.MailId, "Session::runBigWriter:")
+	defer RecoverCommon(this.MailId, "Session::runSSWriter:")
 
 	for {
 		header := DListNode{}
@@ -231,12 +241,19 @@ func (this *Session) runBigWriter() {
 				break
 			}
 
-			t := n.Data.(*Tmsg_packet)
+			t := n.Data.(*Tmsg_ss_packet)
 
-			if t.Len > packetBigHeaderSize {
-				_, err := this.connClient.Write(t.Data[:t.Len])
-				if err != nil {
-					LogWarnPost(this.MailId, err.Error())
+			if t.Len > pckSSHeaderSize {
+				start_pos := 0
+				for i := 0; i < 20; i++ {
+					wLen, err := this.connClient.Write(t.Data[start_pos:t.Len])
+					if err != nil {
+						LogWarnPost(this.MailId, err.Error())
+						break
+					}
+					if uint32(wLen) < t.Len {
+						start_pos = wLen
+					}
 				}
 			}
 
@@ -244,7 +261,98 @@ func (this *Session) runBigWriter() {
 		}
 	}
 
-	CloseSession(this.toMailId, this.Id)
+	CloseSession(this.toMailId, this.SessionId)
+}
+
+func (this *Session) runSGReader() {
+	defer LeaveThread()
+	defer RecoverCommon(this.MailId, "Session::runSGReader:")
+
+	var err error
+	header := make([]byte, pckSGHeaderSize)
+	var length int
+	var xStream Stream
+	xStream.Init(header)
+
+	for {
+		length, err = io.ReadFull(this.connClient, header[:])
+
+		if length != pckSGHeaderSize || err != nil {
+			if err == nil {
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, fmt.Sprintf("Net packet header : %d != %d\n", length, pckSGHeaderSize)})
+			} else {
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, err.Error()})
+			}
+			break
+		}
+
+		msg := new(Tmsg_sg_packet)
+		msg.SessionId = this.SessionId
+		msg.PacketType = this.PacketType
+
+		xStream.Seek(0)
+		msg.Len = uint32(xStream.ReadUint24())
+		msg.Count = uint16(xStream.ReadUint16())
+		msg.Flag = xStream.ReadUint64()
+
+		// 根据 msg.Len 分配一个 缓冲, 并读取 body
+		body_len := msg.Len - pckSGHeaderSize
+		buf := make([]byte, body_len)
+		length, err = io.ReadFull(this.connClient, buf[:])
+		if length != int(body_len) || err != nil {
+			if err == nil {
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, fmt.Sprintf("Net packet body : %d != %d\n", length, body_len)})
+			} else {
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, err.Error()})
+			}
+			break
+		}
+
+		msg.Data = buf
+
+		PostThreadMsg(this.toMailId, msg)
+	}
+
+	CloseSession(this.toMailId, this.SessionId)
+}
+
+func (this *Session) runSGWriter() {
+	defer LeaveThread()
+	defer RecoverCommon(this.MailId, "Session::runSGWriter:")
+
+	for {
+		header := DListNode{}
+		header.Init(nil)
+
+		GetThreadMsgs().WaitMsg(this.MailId, &header)
+		for {
+
+			n := header.Next
+			if n.IsEmpty() {
+				break
+			}
+
+			t := n.Data.(*Tmsg_sg_packet)
+
+			if t.Len > pckSGHeaderSize {
+				start_pos := 0
+				for i := 0; i < 20; i++ {
+					wLen, err := this.connClient.Write(t.Data[start_pos:t.Len])
+					if err != nil {
+						LogWarnPost(this.MailId, err.Error())
+						break
+					}
+					if uint32(wLen) < t.Len {
+						start_pos = wLen
+					}
+				}
+			}
+
+			n.Pop()
+		}
+	}
+
+	CloseSession(this.toMailId, this.SessionId)
 }
 
 // 通过Id获取会话对象
@@ -287,7 +395,7 @@ func newSession(name string) *Session {
 		}
 	}
 
-	s.Id = ToogoApp.lastSessionId
+	s.SessionId = ToogoApp.lastSessionId
 	ToogoApp.sessions[ToogoApp.lastSessionId] = s
 	ToogoApp.lastSessionId++
 
@@ -310,7 +418,7 @@ func delSession(id uint32) {
 // net_type   : 会话类型(tcp,udp)
 // address    : 远程服务ip地址
 // accpetQuit : 接收器失败, 就退出
-func Listen(typ uint32, tid uint32, name, net_type, address string, accpetQuit bool) {
+func Listen(typ uint16, tid uint32, name, net_type, address string, accpetQuit bool) {
 	EnterThread()
 	go func(tid uint32, name, net_type, address string, accpetQuit bool) {
 		defer LeaveThread()
@@ -318,7 +426,7 @@ func Listen(typ uint32, tid uint32, name, net_type, address string, accpetQuit b
 
 		if len(address) == 0 || len(address) == 0 || len(net_type) == 0 {
 			LogWarnPost(0, "listen failed")
-			PostThreadMsg(tid, &Tmsg_net{"listen failed", name, 0, "listen failed"})
+			PostThreadMsg(tid, &Tmsg_net{0, "listen failed", name, "listen failed"})
 			return
 		}
 
@@ -327,14 +435,14 @@ func Listen(typ uint32, tid uint32, name, net_type, address string, accpetQuit b
 
 		if err != nil {
 			LogWarnPost(0, "Listen Start : port failed: '"+address+"' "+err.Error())
-			PostThreadMsg(tid, &Tmsg_net{"listen failed", name, 0, "Listen Start : port failed: '" + address + "' " + err.Error()})
+			PostThreadMsg(tid, &Tmsg_net{0, "listen failed", name, "Listen Start : port failed: '" + address + "' " + err.Error()})
 			return
 		}
 
 		listener, err := net.ListenTCP(net_type, serverAddr)
 		if err != nil {
 			LogWarnPost(0, "TcpSerer ListenTCP: "+err.Error())
-			PostThreadMsg(tid, &Tmsg_net{"listen failed", name, 0, "TcpSerer ListenTCP: " + err.Error()})
+			PostThreadMsg(tid, &Tmsg_net{0, "listen failed", name, "TcpSerer ListenTCP: " + err.Error()})
 			return
 		}
 
@@ -342,7 +450,7 @@ func Listen(typ uint32, tid uint32, name, net_type, address string, accpetQuit b
 		ln.initListen(typ, tid, address, listener)
 
 		LogInfoPost(0, "listen ok")
-		PostThreadMsg(tid, &Tmsg_net{"listen ok", name, 0, ""})
+		PostThreadMsg(tid, &Tmsg_net{0, "listen ok", name, ""})
 
 		for {
 			conn, err := listener.AcceptTCP()
@@ -357,7 +465,7 @@ func Listen(typ uint32, tid uint32, name, net_type, address string, accpetQuit b
 			c.initConn(typ, tid, "", conn)
 			c.run()
 			LogInfoPost(0, "accept ok")
-			PostThreadMsg(tid, &Tmsg_net{"accept ok", "", c.Id, ""})
+			PostThreadMsg(tid, &Tmsg_net{c.SessionId, "accept ok", "", ""})
 		}
 		LogInfoPost(0, "listen end")
 	}(tid, name, net_type, address, accpetQuit)
@@ -368,14 +476,14 @@ func Listen(typ uint32, tid uint32, name, net_type, address string, accpetQuit b
 // name     : 会话别名
 // net_type : 会话类型(tcp,udp)
 // address  : 远程服务ip地址
-func Connect(typ uint32, tid uint32, name, net_type, address string) {
+func Connect(typ uint16, tid uint32, name, net_type, address string) {
 	EnterThread()
 	go func(tid uint32, name, net_type, address string) {
 		defer LeaveThread()
 		defer RecoverCommon(0, "Connect:")
 
 		if len(address) == 0 || len(net_type) == 0 || len(name) == 0 {
-			PostThreadMsg(tid, &Tmsg_net{"connect failed", name, 0, "listen failed"})
+			PostThreadMsg(tid, &Tmsg_net{0, "connect failed", name, "listen failed"})
 			return
 		}
 
@@ -383,18 +491,18 @@ func Connect(typ uint32, tid uint32, name, net_type, address string) {
 		remoteAddr, err := net.ResolveTCPAddr(net_type, address)
 
 		if err != nil {
-			PostThreadMsg(tid, &Tmsg_net{"connect failed", name, 0, "Connect Start : port failed: '" + address + "' " + err.Error()})
+			PostThreadMsg(tid, &Tmsg_net{0, "connect failed", name, "Connect Start : port failed: '" + address + "' " + err.Error()})
 			return
 		}
 
 		conn, err := net.DialTCP(net_type, nil, remoteAddr)
 		if err != nil {
-			PostThreadMsg(tid, &Tmsg_net{"connect failed", name, 0, "Connect dialtcp failed: '" + address + "' " + err.Error()})
+			PostThreadMsg(tid, &Tmsg_net{0, "connect failed", name, "Connect dialtcp failed: '" + address + "' " + err.Error()})
 		} else {
 			c := newSession(name)
 			c.initConn(typ, tid, "", conn)
 			c.run()
-			PostThreadMsg(tid, &Tmsg_net{"connect ok", name, c.Id, ""})
+			PostThreadMsg(tid, &Tmsg_net{c.SessionId, "connect ok", name, ""})
 		}
 	}(tid, name, net_type, address)
 }
@@ -411,7 +519,7 @@ func CloseSession(tid uint32, sessionId uint32) {
 		if s != nil {
 			defer RecoverCommon(s.MailId, "CloseSession:")
 
-			PostThreadMsg(tid, &Tmsg_net{"pre close", s.Name, s.Id, ""})
+			PostThreadMsg(tid, &Tmsg_net{s.SessionId, "pre close", s.Name, ""})
 
 			var err error
 
@@ -422,12 +530,12 @@ func CloseSession(tid uint32, sessionId uint32) {
 			}
 
 			if err != nil {
-				PostThreadMsg(tid, &Tmsg_net{"close failed", s.Name, s.Id, err.Error()})
+				PostThreadMsg(tid, &Tmsg_net{s.SessionId, "close failed", s.Name, err.Error()})
 			} else {
-				PostThreadMsg(tid, &Tmsg_net{"close ok", s.Name, s.Id, ""})
+				PostThreadMsg(tid, &Tmsg_net{s.SessionId, "close ok", s.Name, ""})
 			}
 
-			delSession(s.Id)
+			delSession(s.SessionId)
 		}
 
 	}(tid, sessionId)

@@ -48,11 +48,11 @@ func Run(m IThread) {
 	}
 
 	for _, v := range cfg.ListenPorts {
-		Listen(Tid_master, v.Name, v.NetType, v.Address, v.AcceptQuit)
+		Listen(v.PacketType, Tid_master, v.Name, v.NetType, v.Address, v.AcceptQuit)
 	}
 
 	for _, v := range cfg.ConnectPorts {
-		Connect(Tid_master, v.Name, v.NetType, v.Address)
+		Connect(v.PacketType, Tid_master, v.Name, v.NetType, v.Address)
 	}
 
 	ToogoApp.wg.Wait()
