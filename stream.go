@@ -357,7 +357,7 @@ func (t *Stream) XReadUint32() (uint32, bool) {
 	return 0, false
 }
 
-func (t *Stream) XReadUint64() (uint32, bool) {
+func (t *Stream) XReadUint64() (uint64, bool) {
 	if t.Pos+7 < t.MaxLen {
 		o := t.Pos
 		t.Pos = t.Pos + 8
