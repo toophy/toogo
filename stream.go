@@ -302,6 +302,15 @@ func (t *Stream) ReadBytes() []byte {
 	panic(errors.New("Stream:ReadBytes no long"))
 }
 
+func (t *Stream) ReadData(data_len uint64) []byte {
+	if data_len > 0 && (t.Pos+data_len) < (t.MaxLen+1) {
+		o := t.Pos
+		t.Pos = t.Pos + data_len
+		return t.Data[o : o+data_len]
+	}
+	panic(errors.New("Stream:ReadData no long"))
+}
+
 func (t *Stream) ReadString() string {
 	data_len := uint64(t.ReadUint16())
 	if data_len > 0 && (t.Pos+data_len) < (t.MaxLen+1) {
@@ -690,6 +699,18 @@ func (t *Stream) WriteBytes(d []byte) {
 	}
 
 	panic(errors.New("Stream:WriteBytes no long"))
+}
+
+func (t *Stream) WriteData(d []byte) {
+	d_len := uint64(len(d))
+
+	if t.Pos+d_len < t.MaxLen+1 {
+		copy(t.Data[t.Pos:], d[:])
+		t.Pos = t.Pos + d_len
+		return
+	}
+
+	panic(errors.New("Stream:WriteData no long"))
 }
 
 func (t *Stream) WriteString(d *string) {

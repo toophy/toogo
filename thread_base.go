@@ -11,12 +11,13 @@ import (
 
 // 线程接口
 type IThread interface {
-	Init_thread(IThread, uint32, string, uint16, int64, uint64) error // 初始化线程
-	Run_thread()                                                      // 运行线程
-	Get_thread_id() uint32                                            // 获取线程ID
-	Get_thread_name() string                                          // 获取线程名称
-	Pre_close_thread()                                                // -- 只允许thread调用 : 预备关闭线程
-	RegistNetMsg(id uint16, f NetMsgFunc)                             // -- 注册网络消息处理函数
+	Init_thread(IThread, uint32, string, uint16, int64, uint64) error                    // 初始化线程
+	Run_thread()                                                                         // 运行线程
+	Get_thread_id() uint32                                                               // 获取线程ID
+	Get_thread_name() string                                                             // 获取线程名称
+	Pre_close_thread()                                                                   // -- 只允许thread调用 : 预备关闭线程
+	RegistNetMsg(id uint16, f NetMsgFunc)                                                // -- 注册网络消息处理函数
+	ProcSubNetPacket(pack *PacketReader, sessionId uint64, forbid_msg uint16) (ret bool) // -- 处理SubPacket
 
 	// 事件处理系列接口
 	PostEvent(a IEvent) bool     // 投递定时器事件
@@ -742,6 +743,66 @@ func (this *Thread) procSGNetPacket(m *Tmsg_packet) (ret bool) {
 				errMsg = "读取消息体失败"
 				return
 			}
+		}
+	}
+
+	ret = true
+	return
+}
+
+// 响应SS网络消息包
+func (this *Thread) ProcSubNetPacket(pack *PacketReader, sessionId uint64, forbid_msg uint16) (ret bool) {
+
+	errMsg := ""
+
+	defer func() {
+		if !ret {
+			if len(errMsg) > 0 {
+				this.LogWarn(errMsg)
+			}
+			this.self.On_packetError(sessionId)
+		}
+	}()
+
+	defer RecoverCommon(this.id, "Thread::ProcSubNetPacket:")
+
+	/*pckLen := */ pack.ReadUint16()
+	msgCount := pack.ReadUint16()
+
+	for i := uint16(0); i < msgCount; i++ {
+		old_pos := pack.GetPos()
+		msg_len, errLen := pack.XReadUint16()
+		msg_id, errId := pack.XReadUint16()
+
+		if !errLen || !errId {
+			errMsg = "读取消息头失败"
+			return
+		}
+
+		if msg_len < msgHeaderSize || uint64(msg_len) > pack.GetMaxLen()-old_pos {
+			errMsg = "SS消息长度无效"
+			return
+		}
+
+		if msg_id >= this.netMsgMaxId {
+			errMsg = "消息ID无效"
+			return
+		}
+
+		if forbid_msg == msg_id {
+			errMsg = "SubPacket不能使用特殊消息"
+			return
+		}
+
+		fc := this.netMsgProc[msg_id]
+		if fc == nil {
+			errMsg = "消息没有对应处理函数"
+			return
+		}
+
+		if !fc(pack, sessionId) {
+			errMsg = "读取消息体失败"
+			return
 		}
 	}
 
