@@ -40,10 +40,10 @@ type IThread interface {
 	On_packetError(sessionId uint32) // -- 当网络消息包解析出现问题, 如何处理?
 
 	// toogo库私有接口
-	procCGNetPacket(m *Tmsg_cg_packet) bool // -- 响应网络消息包 Session是CG类型
-	procSSNetPacket(m *Tmsg_ss_packet) bool // -- 响应网络消息包 Session是SS类型
-	procSGNetPacket(m *Tmsg_sg_packet) bool // -- 响应网络消息包 Session是SG类型
-	add_log(d string)                       //增加日志信息
+	procCGNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是CG类型
+	procSSNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是SS类型
+	procSGNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是SG类型
+	add_log(d string)                    //增加日志信息
 }
 
 const (
@@ -572,7 +572,7 @@ func (this *Thread) RegistNetMsg(id uint16, f NetMsgFunc) {
 }
 
 // 响应网络消息包
-func (this *Thread) procCGNetPacket(m *Tmsg_cg_packet) (ret bool) {
+func (this *Thread) procCGNetPacket(m *Tmsg_packet) (ret bool) {
 
 	errMsg := ""
 
@@ -601,7 +601,7 @@ func (this *Thread) procCGNetPacket(m *Tmsg_cg_packet) (ret bool) {
 		}
 
 		if msg_len < msgHeaderSize || uint64(msg_len) > p.GetMaxLen()-old_pos {
-			errMsg = "消息长度无效"
+			errMsg = "CG消息长度无效"
 			return
 		}
 
@@ -627,7 +627,7 @@ func (this *Thread) procCGNetPacket(m *Tmsg_cg_packet) (ret bool) {
 }
 
 // 响应SS网络消息包
-func (this *Thread) procSSNetPacket(m *Tmsg_ss_packet) (ret bool) {
+func (this *Thread) procSSNetPacket(m *Tmsg_packet) (ret bool) {
 
 	errMsg := ""
 
@@ -656,7 +656,7 @@ func (this *Thread) procSSNetPacket(m *Tmsg_ss_packet) (ret bool) {
 		}
 
 		if msg_len < msgHeaderSize || uint64(msg_len) > p.GetMaxLen()-old_pos {
-			errMsg = "消息长度无效"
+			errMsg = "SS消息长度无效"
 			return
 		}
 
@@ -683,7 +683,7 @@ func (this *Thread) procSSNetPacket(m *Tmsg_ss_packet) (ret bool) {
 
 // 响应SS网络消息包
 // 这个消息包, 里面是子消息包
-func (this *Thread) procSGNetPacket(m *Tmsg_sg_packet) (ret bool) {
+func (this *Thread) procSGNetPacket(m *Tmsg_packet) (ret bool) {
 
 	errMsg := ""
 
@@ -723,7 +723,7 @@ func (this *Thread) procSGNetPacket(m *Tmsg_sg_packet) (ret bool) {
 			}
 
 			if msg_len < msgHeaderSize || uint64(msg_len) > p.GetMaxLen()-old_pos {
-				errMsg = "消息长度无效"
+				errMsg = "SG消息长度无效"
 				return
 			}
 

@@ -55,25 +55,10 @@ func (this *Session) GetIPAddress() string {
 }
 
 func (this *Session) run() {
-	switch this.PacketType {
-	case SessionPacket_CG:
-		EnterThread()
-		go this.runCGReader()
-		EnterThread()
-		go this.runCGWriter()
-
-	case SessionPacket_SS:
-		EnterThread()
-		go this.runSSReader()
-		EnterThread()
-		go this.runSSWriter()
-
-	case SessionPacket_SG:
-		EnterThread()
-		go this.runSGReader()
-		EnterThread()
-		go this.runSGWriter()
-	}
+	EnterThread()
+	go this.runReader()
+	EnterThread()
+	go this.runWriter()
 }
 
 const (
@@ -82,12 +67,22 @@ const (
 	pckSGHeaderSize = 13 // SG 类型包头长度
 )
 
-func (this *Session) runCGReader() {
+func (this *Session) runReader() {
 	defer LeaveThread()
-	defer RecoverCommon(this.MailId, "Session::runCGReader:")
+	defer RecoverCommon(this.MailId, "Session::runReader:")
+
+	headerSize := uint32(pckCGHeaderSize)
+	switch this.PacketType {
+	case SessionPacket_CG:
+		headerSize = uint32(pckCGHeaderSize)
+	case SessionPacket_SS:
+		headerSize = uint32(pckSSHeaderSize)
+	case SessionPacket_SG:
+		headerSize = uint32(pckSGHeaderSize)
+	}
 
 	var err error
-	header := make([]byte, pckCGHeaderSize)
+	header := make([]byte, headerSize)
 	var length int
 	var xStream Stream
 	xStream.Init(header)
@@ -95,26 +90,37 @@ func (this *Session) runCGReader() {
 	for {
 		length, err = io.ReadFull(this.connClient, header[:])
 
-		if length != pckCGHeaderSize || err != nil {
+		if length != int(headerSize) || err != nil {
 			if err == nil {
-				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, fmt.Sprintf("Net packet header : %d != %d\n", length, pckCGHeaderSize)})
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, fmt.Sprintf("Net packet header : %d != %d\n", length, headerSize)})
 			} else {
 				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, err.Error()})
 			}
 			break
 		}
 
-		msg := new(Tmsg_cg_packet)
+		msg := new(Tmsg_packet)
 		msg.SessionId = this.SessionId
 		msg.PacketType = this.PacketType
 
 		xStream.Seek(0)
-		msg.Len = uint32(xStream.ReadUint16())
-		msg.Token = uint32(xStream.ReadUint8())
-		msg.Count = uint16(xStream.ReadUint8())
+		switch this.PacketType {
+		case SessionPacket_CG:
+			msg.Len = uint32(xStream.ReadUint16())
+			msg.Token = uint32(xStream.ReadUint8())
+			msg.Count = uint16(xStream.ReadUint8())
+		case SessionPacket_SS:
+			msg.Len = uint32(xStream.ReadUint16())
+			msg.Token = uint32(xStream.ReadUint8())
+			msg.Count = uint16(xStream.ReadUint8())
+		case SessionPacket_SG:
+			msg.Len = uint32(xStream.ReadUint24())
+			msg.Count = uint16(xStream.ReadUint16())
+			msg.Flag = xStream.ReadUint64()
+		}
 
 		// 根据 msg.Len 分配一个 缓冲, 并读取 body
-		body_len := msg.Len - pckCGHeaderSize
+		body_len := msg.Len - headerSize
 		buf := make([]byte, body_len)
 		length, err = io.ReadFull(this.connClient, buf[:])
 		if length != int(body_len) || err != nil {
@@ -134,15 +140,30 @@ func (this *Session) runCGReader() {
 	CloseSession(this.toMailId, this.SessionId)
 }
 
-func (this *Session) runCGWriter() {
+func (this *Session) runWriter() {
+
+	headerSize := uint32(pckCGHeaderSize)
+	switch this.PacketType {
+	case SessionPacket_CG:
+		headerSize = uint32(pckCGHeaderSize)
+	case SessionPacket_SS:
+		headerSize = uint32(pckSSHeaderSize)
+	case SessionPacket_SG:
+		headerSize = uint32(pckSGHeaderSize)
+	}
+
 	defer LeaveThread()
-	defer RecoverCommon(this.MailId, "Session::runCGWriter:")
+	defer RecoverCommon(this.MailId, "Session::runWriter:")
 
 	for {
 		header := DListNode{}
 		header.Init(nil)
 
 		GetThreadMsgs().WaitMsg(this.MailId, &header)
+		if header.IsEmpty() {
+			break
+		}
+
 		for {
 
 			n := header.Next
@@ -150,201 +171,21 @@ func (this *Session) runCGWriter() {
 				break
 			}
 
-			t := n.Data.(*Tmsg_cg_packet)
+			t := n.Data.(*Tmsg_packet)
 
-			if t.Len > pckCGHeaderSize {
+			if t.Len > headerSize {
 				start_pos := 0
-				for i := 0; i < 20; i++ {
+				for i := 0; i < 6; i++ {
 					wLen, err := this.connClient.Write(t.Data[start_pos:t.Len])
 					if err != nil {
 						LogWarnPost(this.MailId, err.Error())
+						CloseSession(this.toMailId, this.SessionId)
+						return
+					}
+					if uint32(wLen) == t.Len {
 						break
 					}
-					if uint32(wLen) < t.Len {
-						start_pos = wLen
-					}
-				}
-			}
-
-			n.Pop()
-		}
-	}
-
-	CloseSession(this.toMailId, this.SessionId)
-}
-
-func (this *Session) runSSReader() {
-	defer LeaveThread()
-	defer RecoverCommon(this.MailId, "Session::runSSReader:")
-
-	var err error
-	header := make([]byte, pckSSHeaderSize)
-	var length int
-	var xStream Stream
-	xStream.Init(header)
-
-	for {
-		length, err = io.ReadFull(this.connClient, header[:])
-
-		if length != pckSSHeaderSize || err != nil {
-			if err == nil {
-				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, fmt.Sprintf("Net packet header : %d != %d\n", length, pckSSHeaderSize)})
-			} else {
-				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, err.Error()})
-			}
-			break
-		}
-
-		msg := new(Tmsg_ss_packet)
-		msg.SessionId = this.SessionId
-		msg.PacketType = this.PacketType
-
-		xStream.Seek(0)
-		msg.Len = uint32(xStream.ReadUint16())
-		msg.Token = uint32(xStream.ReadUint8())
-		msg.Count = uint16(xStream.ReadUint8())
-
-		// 根据 msg.Len 分配一个 缓冲, 并读取 body
-		body_len := msg.Len - pckSSHeaderSize
-		buf := make([]byte, body_len)
-		length, err = io.ReadFull(this.connClient, buf[:])
-		if length != int(body_len) || err != nil {
-			if err == nil {
-				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, fmt.Sprintf("Net packet body : %d != %d\n", length, body_len)})
-			} else {
-				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, err.Error()})
-			}
-			break
-		}
-
-		msg.Data = buf
-
-		PostThreadMsg(this.toMailId, msg)
-	}
-
-	CloseSession(this.toMailId, this.SessionId)
-}
-
-func (this *Session) runSSWriter() {
-	defer LeaveThread()
-	defer RecoverCommon(this.MailId, "Session::runSSWriter:")
-
-	for {
-		header := DListNode{}
-		header.Init(nil)
-
-		GetThreadMsgs().WaitMsg(this.MailId, &header)
-		for {
-
-			n := header.Next
-			if n.IsEmpty() {
-				break
-			}
-
-			t := n.Data.(*Tmsg_ss_packet)
-
-			if t.Len > pckSSHeaderSize {
-				start_pos := 0
-				for i := 0; i < 20; i++ {
-					wLen, err := this.connClient.Write(t.Data[start_pos:t.Len])
-					if err != nil {
-						LogWarnPost(this.MailId, err.Error())
-						break
-					}
-					if uint32(wLen) < t.Len {
-						start_pos = wLen
-					}
-				}
-			}
-
-			n.Pop()
-		}
-	}
-
-	CloseSession(this.toMailId, this.SessionId)
-}
-
-func (this *Session) runSGReader() {
-	defer LeaveThread()
-	defer RecoverCommon(this.MailId, "Session::runSGReader:")
-
-	var err error
-	header := make([]byte, pckSGHeaderSize)
-	var length int
-	var xStream Stream
-	xStream.Init(header)
-
-	for {
-		length, err = io.ReadFull(this.connClient, header[:])
-
-		if length != pckSGHeaderSize || err != nil {
-			if err == nil {
-				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, fmt.Sprintf("Net packet header : %d != %d\n", length, pckSGHeaderSize)})
-			} else {
-				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, err.Error()})
-			}
-			break
-		}
-
-		msg := new(Tmsg_sg_packet)
-		msg.SessionId = this.SessionId
-		msg.PacketType = this.PacketType
-
-		xStream.Seek(0)
-		msg.Len = uint32(xStream.ReadUint24())
-		msg.Count = uint16(xStream.ReadUint16())
-		msg.Flag = xStream.ReadUint64()
-
-		// 根据 msg.Len 分配一个 缓冲, 并读取 body
-		body_len := msg.Len - pckSGHeaderSize
-		buf := make([]byte, body_len)
-		length, err = io.ReadFull(this.connClient, buf[:])
-		if length != int(body_len) || err != nil {
-			if err == nil {
-				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, fmt.Sprintf("Net packet body : %d != %d\n", length, body_len)})
-			} else {
-				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, err.Error()})
-			}
-			break
-		}
-
-		msg.Data = buf
-
-		PostThreadMsg(this.toMailId, msg)
-	}
-
-	CloseSession(this.toMailId, this.SessionId)
-}
-
-func (this *Session) runSGWriter() {
-	defer LeaveThread()
-	defer RecoverCommon(this.MailId, "Session::runSGWriter:")
-
-	for {
-		header := DListNode{}
-		header.Init(nil)
-
-		GetThreadMsgs().WaitMsg(this.MailId, &header)
-		for {
-
-			n := header.Next
-			if n.IsEmpty() {
-				break
-			}
-
-			t := n.Data.(*Tmsg_sg_packet)
-
-			if t.Len > pckSGHeaderSize {
-				start_pos := 0
-				for i := 0; i < 20; i++ {
-					wLen, err := this.connClient.Write(t.Data[start_pos:t.Len])
-					if err != nil {
-						LogWarnPost(this.MailId, err.Error())
-						break
-					}
-					if uint32(wLen) < t.Len {
-						start_pos = wLen
-					}
+					start_pos = wLen
 				}
 			}
 
