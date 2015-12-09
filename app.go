@@ -10,7 +10,7 @@ import (
 // 创建App
 func newApp() *App {
 	a := new(App)
-	a.sessions = make(map[uint32]*Session, 20)
+	a.sessions = make(map[uint64]*Session, 20)
 	a.sessionNames = make(map[string]*Session, 16)
 	a.config.ListenPorts = make(map[string]listenPort, 3)
 	a.config.ConnectPorts = make(map[string]connectPort, 9)
@@ -23,8 +23,8 @@ func newApp() *App {
 // 3. 整合框架
 type App struct {
 	master         IThread             // 主线程
-	lastSessionId  uint32              // 网络会话ID
-	sessions       map[uint32]*Session // 网络会话池
+	lastSessionId  uint64              // 网络会话ID
+	sessions       map[uint64]*Session // 网络会话池
 	sessionNames   map[string]*Session // 网络会话池(别名)
 	sessionMutex   sync.RWMutex        // 网络会话池读写锁
 	config         toogoConfig         // 配置信息

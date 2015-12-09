@@ -7,6 +7,34 @@ import (
 	"net"
 )
 
+// 封包处理(大批量,或者一个网络口(代理))
+// 简化发送消息的代码
+// Lua支持消息包
+// Lua支持线程间消息
+//
+// Session上面做标记, 大包, 小包 等
+// 每种包会有不同的解包机制, 包头大小
+// 如何在accecpt时就知道这个包属于哪种包头?
+// 是一个什么消息么?
+// 比如, 一开始默认都是小包
+// 验证成功后, 根据对方资质, 变成大包
+// 或者
+// 有一个Listen侦听到的都是服务器连接, 都是大包头?
+// 其实只有gate服连接才是大包头, 其他都是小包头
+//
+// 服务器之间都是大包头, 也即是包长度4字节, 包消息数量2字节,
+// 只有gate和客户端之间才是小包头, 包长度2字节, 包消息数量1字节,
+//
+// 只有服务器和gate服的连接才会包中有包, 其他都是简单的消息处理
+//
+// session需要分清楚
+// 1. 这是什么连接(服务器,客户端)
+// 2. 服务器的连接中, 是否有gate服
+//    a. CG连接 小包
+//    b. SS连接 大包
+//    c. GS连接 混合大包
+//
+
 const (
 	SessionPacket_CG    = 0 // 客户端和Gate连接
 	SessionPacket_SS    = 1 // 服务器和服务器连接
@@ -21,7 +49,7 @@ const (
 // 邮箱在哪里? ReadSilk决定还是网络端口决定?
 // 由ReadSilk决定更能解耦网络端口
 type Session struct {
-	SessionId  uint32           // 会话ID
+	SessionId  uint64           // 会话ID
 	MailId     uint32           // 邮箱ID
 	toMailId   uint32           // 目标邮箱ID, 接收到消息都转发到这个邮箱
 	PacketType uint16           // 数据包类型:CG,SS,SG
@@ -62,9 +90,9 @@ func (this *Session) run() {
 }
 
 const (
-	pckCGHeaderSize = 4  // CG 类型包头长度
-	pckSSHeaderSize = 4  // SS 类型包头长度
-	pckSGHeaderSize = 13 // SG 类型包头长度
+	pckCGHeaderSize = 4 // CG 类型包头长度
+	pckSSHeaderSize = 5 // SS 类型包头长度
+	pckSGHeaderSize = 5 // SG 类型包头长度
 )
 
 func (this *Session) runReader() {
@@ -110,13 +138,11 @@ func (this *Session) runReader() {
 			msg.Token = uint32(xStream.ReadUint8())
 			msg.Count = uint16(xStream.ReadUint8())
 		case SessionPacket_SS:
-			msg.Len = uint32(xStream.ReadUint16())
-			msg.Token = uint32(xStream.ReadUint8())
-			msg.Count = uint16(xStream.ReadUint8())
+			msg.Len = uint32(xStream.ReadUint24())
+			msg.Count = uint16(xStream.ReadUint16())
 		case SessionPacket_SG:
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
-			msg.Flag = xStream.ReadUint64()
 		}
 
 		// 根据 msg.Len 分配一个 缓冲, 并读取 body
@@ -197,7 +223,7 @@ func (this *Session) runWriter() {
 }
 
 // 通过Id获取会话对象
-func GetSessionById(id uint32) *Session {
+func GetSessionById(id uint64) *Session {
 	ToogoApp.sessionMutex.RLock()
 	defer ToogoApp.sessionMutex.RUnlock()
 
@@ -244,7 +270,7 @@ func newSession(name string) *Session {
 }
 
 // 删除一个网络会话
-func delSession(id uint32) {
+func delSession(id uint64) {
 	ToogoApp.sessionMutex.Lock()
 	defer ToogoApp.sessionMutex.Unlock()
 
@@ -351,9 +377,9 @@ func Connect(typ uint16, tid uint32, name, net_type, address string) {
 // 关闭一个会话
 // tid      : 关联线程
 // s        : 会话对象
-func CloseSession(tid uint32, sessionId uint32) {
+func CloseSession(tid uint32, sessionId uint64) {
 	EnterThread()
-	go func(tid uint32, sessionId uint32) {
+	go func(tid uint32, sessionId uint64) {
 		defer LeaveThread()
 
 		s := GetSessionById(sessionId)
@@ -380,4 +406,33 @@ func CloseSession(tid uint32, sessionId uint32) {
 		}
 
 	}(tid, sessionId)
+}
+
+// 创建一个长度的PacketWriter
+func NewPacket(l int) *PacketWriter {
+	defer RecoverCommon(0, "toogo::NewPacket:")
+
+	p := new(PacketWriter)
+	d := make([]byte, l)
+	p.InitWriter(d)
+	return p
+}
+
+// 发送网络消息包
+func SendPacket(p *PacketWriter, sessionId uint64) bool {
+
+	defer RecoverCommon(0, "toogo::SendPacket:")
+
+	session := GetSessionById(sessionId)
+	if session != nil {
+		p.PacketWriteOver(session.PacketType)
+		x := new(Tmsg_packet)
+		x.Data = p.GetData()
+		x.Len = uint32(p.GetPos())
+		x.Count = uint16(p.Count)
+
+		PostThreadMsg(session.MailId, x)
+	}
+
+	return false
 }

@@ -37,7 +37,7 @@ type IThread interface {
 	On_end()                         // -- 只允许thread调用 : 线程结束回调
 	On_netEvent(m *Tmsg_net) bool    // -- 响应网络事件
 	On_registNetMsg()                // -- 注册网络消息的响应函数
-	On_packetError(sessionId uint32) // -- 当网络消息包解析出现问题, 如何处理?
+	On_packetError(sessionId uint64) // -- 当网络消息包解析出现问题, 如何处理?
 
 	// toogo库私有接口
 	procCGNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是CG类型
@@ -62,7 +62,7 @@ const (
 )
 
 // 消息函数类型
-type NetMsgFunc func(p *PacketReader, sessionId uint32) bool
+type NetMsgFunc func(p *PacketReader, sessionId uint64) bool
 
 // 线程基本功能
 type Thread struct {

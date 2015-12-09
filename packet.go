@@ -67,25 +67,25 @@ func (this *PacketWriter) WriteMsgOver() {
 }
 
 // 结束一个封包
-func (this *PacketWriter) PacketWriteOver() {
-	packet_len := uint32(this.Pos)
+func (this *PacketWriter) PacketWriteOver(pckType uint16) {
+	packet_len := this.Pos
 	token := uint32(0)
-	header := uint32(this.Count)<<24 | token<<16 | packet_len
 
 	old_pos := this.Pos
 	this.Pos = 0
-	this.WriteUint32(header)
-	this.Pos = old_pos
-}
 
-// 结束一个大封包
-func (this *PacketWriter) PacketBigWriteOver(flag uint64) {
-	packet_len := uint32(this.Pos)
+	switch pckType {
+	case SessionPacket_CG:
+		this.WriteUint16(uint16(packet_len))
+		this.WriteUint8(uint8(token))
+		this.WriteUint8(uint8(this.Count))
+	case SessionPacket_SS:
+		this.WriteUint24(uint32(packet_len))
+		this.WriteUint16(this.Count)
+	case SessionPacket_SG:
+		this.WriteUint24(uint32(packet_len))
+		this.WriteUint16(this.Count)
+	}
 
-	old_pos := this.Pos
-	this.Pos = 0
-	this.WriteUint24(packet_len)
-	this.WriteUint16(this.Count)
-	this.WriteUint64(flag)
 	this.Pos = old_pos
 }

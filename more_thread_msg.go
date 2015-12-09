@@ -19,7 +19,7 @@ func (this *msgThreadLog) Exec(home interface{}) bool {
 
 // 单独日志消息
 type Tmsg_net struct {
-	SessionId uint32 // 网络会话ID
+	SessionId uint64 // 网络会话ID
 	Msg       string // 消息
 	Name      string // 别名
 	Info      string // 描述信息
@@ -32,7 +32,7 @@ func (this *Tmsg_net) Exec(home interface{}) bool {
 // 消息节点(list节点)
 type Tmsg_packet struct {
 	Flag       uint64 // 中转标记
-	SessionId  uint32 // 会话ID
+	SessionId  uint64 // 会话ID
 	Len        uint32 // 包长度
 	Token      uint32 // 包令牌
 	Count      uint16 // 包内消息数
