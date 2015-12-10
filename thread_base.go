@@ -766,8 +766,9 @@ func (this *Thread) ProcSubNetPacket(pack *PacketReader, sessionId uint64, forbi
 
 	defer RecoverCommon(this.id, "Thread::ProcSubNetPacket:")
 
-	/*pckLen := */ pack.ReadUint16()
+	pckLen := pack.ReadUint24()
 	msgCount := pack.ReadUint16()
+	this.LogInfo("packLen=%d,msgCount=%d", pckLen, msgCount)
 
 	for i := uint16(0); i < msgCount; i++ {
 		old_pos := pack.GetPos()

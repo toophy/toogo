@@ -47,7 +47,8 @@ func (this *Tmsg_packet) Exec(home interface{}) bool {
 	case SessionPacket_SS:
 		return home.(IThread).procSSNetPacket(this)
 	case SessionPacket_SG:
-		return home.(IThread).procSGNetPacket(this)
+		// return home.(IThread).procSGNetPacket(this)
+		return home.(IThread).procSSNetPacket(this)
 	}
 
 	return false

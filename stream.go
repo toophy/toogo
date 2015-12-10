@@ -713,6 +713,19 @@ func (t *Stream) WriteData(d []byte) {
 	panic(errors.New("Stream:WriteData no long"))
 }
 
+func (t *Stream) WriteDataEx(d []byte, dLen uint64) {
+	d_len := uint64(len(d))
+	if dLen > 0 && dLen <= d_len {
+		if t.Pos+dLen < t.MaxLen+1 {
+			copy(t.Data[t.Pos:], d[:])
+			t.Pos = t.Pos + dLen
+			return
+		}
+	}
+
+	panic(errors.New("Stream:WriteData no long"))
+}
+
 func (t *Stream) WriteString(d *string) {
 	d_len := uint64(len(*d))
 

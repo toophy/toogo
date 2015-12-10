@@ -36,9 +36,6 @@ import (
 //
 
 const (
-	SessionPacket_CG    = 0 // 客户端和Gate连接
-	SessionPacket_SS    = 1 // 服务器和服务器连接
-	SessionPacket_SG    = 2 // 服务器和Gate连接
 	SessionConn_Listen  = 0 // 侦听
 	SessionConn_Connect = 1 // 主动连接
 )
@@ -88,12 +85,6 @@ func (this *Session) run() {
 	EnterThread()
 	go this.runWriter()
 }
-
-const (
-	pckCGHeaderSize = 4 // CG 类型包头长度
-	pckSSHeaderSize = 5 // SS 类型包头长度
-	pckSGHeaderSize = 5 // SG 类型包头长度
-)
 
 func (this *Session) runReader() {
 	defer LeaveThread()
@@ -409,30 +400,33 @@ func CloseSession(tid uint32, sessionId uint64) {
 }
 
 // 创建一个长度的PacketWriter
-func NewPacket(l int) *PacketWriter {
+func NewPacket(l int, sessionId uint64) *PacketWriter {
 	defer RecoverCommon(0, "toogo::NewPacket:")
-
-	p := new(PacketWriter)
-	d := make([]byte, l)
-	p.InitWriter(d)
-	return p
-}
-
-// 发送网络消息包
-func SendPacket(p *PacketWriter, sessionId uint64) bool {
-
-	defer RecoverCommon(0, "toogo::SendPacket:")
 
 	session := GetSessionById(sessionId)
 	if session != nil {
-		p.PacketWriteOver(session.PacketType)
-		x := new(Tmsg_packet)
-		x.Data = p.GetData()
-		x.Len = uint32(p.GetPos())
-		x.Count = uint16(p.Count)
+		p := new(PacketWriter)
+		d := make([]byte, l)
+		p.InitWriter(d, session.PacketType, session.MailId)
 
-		PostThreadMsg(session.MailId, x)
+		return p
 	}
+
+	return nil
+}
+
+// 发送网络消息包
+func SendPacket(p *PacketWriter) bool {
+
+	defer RecoverCommon(0, "toogo::SendPacket:")
+
+	p.PacketWriteOver()
+	x := new(Tmsg_packet)
+	x.Data = p.GetData()
+	x.Len = uint32(p.GetPos())
+	x.Count = uint16(p.Count)
+
+	PostThreadMsg(p.MailId, x)
 
 	return false
 }
