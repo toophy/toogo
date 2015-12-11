@@ -14,8 +14,11 @@ const (
 // 操作网络封包
 type PacketReader struct {
 	Stream
-	Data  []byte // 数据
-	Count uint16 // 包内消息数
+	Data       []byte // 数据
+	CurrMsgPos uint64 // 当前消息开始位置
+	CurrMsgLen uint16 // 当前消息长度
+	CurrMsgId  uint16 // 当前消息Id
+	Count      uint16 // 包内消息数
 }
 
 // 初始化包
@@ -25,13 +28,14 @@ func (this *PacketReader) InitReader(d []byte, count uint16) {
 	this.Pos = 0
 }
 
-// 读入消息ID
-func (this *PacketReader) ReadMsgId() {
-	// this.ReadUint16()
+func (this *PacketReader) PreReadMsg(msg_id uint16, msg_len uint16, start_pos uint64) {
+	this.CurrMsgId = msg_id
+	this.CurrMsgLen = msg_len
+	this.CurrMsgPos = start_pos
 }
 
-// 开始读取一个网络封包
-func (this *PacketReader) BeginRead() {
+func (this *PacketReader) GetReadMsg() (msg_id uint16, msg_len uint16, start_pos uint64) {
+	return this.CurrMsgId, this.CurrMsgLen, this.CurrMsgPos
 }
 
 // 操作网络封包
@@ -104,4 +108,18 @@ func (this *PacketWriter) PacketWriteOver() {
 	}
 
 	this.Pos = old_pos
+}
+
+// 拷贝一个完整消息
+func (this *PacketWriter) CopyMsg(d []byte, dLen uint64) bool {
+	defer RecoverCommon(0, "PacketWriter::CopyMsg")
+
+	println(d)
+	println(dLen)
+
+	this.WriteDataEx(d, dLen)
+	this.LastMsgPos = this.LastMsgPos + dLen
+	this.Count++
+
+	return true
 }

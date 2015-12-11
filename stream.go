@@ -720,7 +720,11 @@ func (t *Stream) WriteDataEx(d []byte, dLen uint64) {
 			copy(t.Data[t.Pos:], d[:])
 			t.Pos = t.Pos + dLen
 			return
+		} else {
+			println("lwlw2")
 		}
+	} else {
+		println("lwlw:", dLen, d_len)
 	}
 
 	panic(errors.New("Stream:WriteData no long"))

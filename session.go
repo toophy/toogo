@@ -131,6 +131,7 @@ func (this *Session) runReader() {
 		case SessionPacket_SS:
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
+			fmt.Println(header[:])
 		case SessionPacket_SG:
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
@@ -150,6 +151,8 @@ func (this *Session) runReader() {
 		}
 
 		msg.Data = buf
+
+		fmt.Println(buf[:])
 
 		PostThreadMsg(this.toMailId, msg)
 	}

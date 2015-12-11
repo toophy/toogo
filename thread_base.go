@@ -595,6 +595,7 @@ func (this *Thread) procCGNetPacket(m *Tmsg_packet) (ret bool) {
 		old_pos := p.GetPos()
 		msg_len, errLen := p.XReadUint16()
 		msg_id, errId := p.XReadUint16()
+		p.PreReadMsg(msg_id, msg_len, old_pos)
 
 		if !errLen || !errId {
 			errMsg = "读取消息头失败"
@@ -613,7 +614,7 @@ func (this *Thread) procCGNetPacket(m *Tmsg_packet) (ret bool) {
 
 		fc := this.netMsgProc[msg_id]
 		if fc == nil {
-			errMsg = "消息没有对应处理函数"
+			errMsg = "消息没有对应处理函数:" + strconv.Itoa(int(msg_id))
 			return
 		}
 
@@ -621,6 +622,8 @@ func (this *Thread) procCGNetPacket(m *Tmsg_packet) (ret bool) {
 			errMsg = "读取消息体失败"
 			return
 		}
+
+		p.Seek(old_pos + uint64(msg_len))
 	}
 
 	ret = true
@@ -650,6 +653,11 @@ func (this *Thread) procSSNetPacket(m *Tmsg_packet) (ret bool) {
 		old_pos := p.GetPos()
 		msg_len, errLen := p.XReadUint16()
 		msg_id, errId := p.XReadUint16()
+		p.PreReadMsg(msg_id, msg_len, old_pos)
+		println(msg_len)
+		if msg_len == 0 {
+			println(m.Len, m.Count, m.PacketType)
+		}
 
 		if !errLen || !errId {
 			errMsg = "读取消息头失败"
@@ -668,7 +676,7 @@ func (this *Thread) procSSNetPacket(m *Tmsg_packet) (ret bool) {
 
 		fc := this.netMsgProc[msg_id]
 		if fc == nil {
-			errMsg = "消息没有对应处理函数"
+			errMsg = "消息没有对应处理函数:" + strconv.Itoa(int(msg_id))
 			return
 		}
 
@@ -676,6 +684,8 @@ func (this *Thread) procSSNetPacket(m *Tmsg_packet) (ret bool) {
 			errMsg = "读取消息体失败"
 			return
 		}
+
+		p.Seek(old_pos + uint64(msg_len))
 	}
 
 	ret = true
@@ -717,6 +727,7 @@ func (this *Thread) procSGNetPacket(m *Tmsg_packet) (ret bool) {
 			old_pos := p.GetPos()
 			msg_len, errLen := p.XReadUint16()
 			msg_id, errId := p.XReadUint16()
+			p.PreReadMsg(msg_id, msg_len, old_pos)
 
 			if !errLen || !errId {
 				errMsg = "读取消息头失败"
@@ -735,7 +746,7 @@ func (this *Thread) procSGNetPacket(m *Tmsg_packet) (ret bool) {
 
 			fc := this.netMsgProc[msg_id]
 			if fc == nil {
-				errMsg = "消息没有对应处理函数"
+				errMsg = "消息没有对应处理函数:" + strconv.Itoa(int(msg_id))
 				return
 			}
 
@@ -743,6 +754,8 @@ func (this *Thread) procSGNetPacket(m *Tmsg_packet) (ret bool) {
 				errMsg = "读取消息体失败"
 				return
 			}
+
+			p.Seek(old_pos + uint64(msg_len))
 		}
 	}
 
@@ -766,6 +779,8 @@ func (this *Thread) ProcSubNetPacket(pack *PacketReader, sessionId uint64, forbi
 
 	defer RecoverCommon(this.id, "Thread::ProcSubNetPacket:")
 
+	fmt.Println("ProcSubNetPacket")
+
 	pckLen := pack.ReadUint24()
 	msgCount := pack.ReadUint16()
 	this.LogInfo("packLen=%d,msgCount=%d", pckLen, msgCount)
@@ -774,6 +789,7 @@ func (this *Thread) ProcSubNetPacket(pack *PacketReader, sessionId uint64, forbi
 		old_pos := pack.GetPos()
 		msg_len, errLen := pack.XReadUint16()
 		msg_id, errId := pack.XReadUint16()
+		pack.PreReadMsg(msg_id, msg_len, old_pos)
 
 		if !errLen || !errId {
 			errMsg = "读取消息头失败"
@@ -781,7 +797,7 @@ func (this *Thread) ProcSubNetPacket(pack *PacketReader, sessionId uint64, forbi
 		}
 
 		if msg_len < msgHeaderSize || uint64(msg_len) > pack.GetMaxLen()-old_pos {
-			errMsg = "SS消息长度无效"
+			errMsg = "SubPacket消息长度无效"
 			return
 		}
 
@@ -797,7 +813,7 @@ func (this *Thread) ProcSubNetPacket(pack *PacketReader, sessionId uint64, forbi
 
 		fc := this.netMsgProc[msg_id]
 		if fc == nil {
-			errMsg = "消息没有对应处理函数"
+			errMsg = "消息没有对应处理函数:" + strconv.Itoa(int(msg_id))
 			return
 		}
 
@@ -805,6 +821,8 @@ func (this *Thread) ProcSubNetPacket(pack *PacketReader, sessionId uint64, forbi
 			errMsg = "读取消息体失败"
 			return
 		}
+
+		pack.Seek(old_pos + uint64(msg_len))
 	}
 
 	ret = true
