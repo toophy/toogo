@@ -93,16 +93,16 @@ func CopyFile(src, des string) (w int64, err error) {
 }
 
 // 捕获Read异常并打印
-func RecoverRead(msgId uint16) {
+func RecoverRead(flag string) {
 	if r := recover(); r != nil {
-		LogWarnPost(0, "RecoverRead,%d,%s", msgId, r.(error).Error())
+		LogWarnPost(0, "RecoverRead,%s,%s", flag, r.(error).Error())
 	}
 }
 
 // 捕获Write异常并打印
-func RecoverWrite(msgId uint16) {
+func RecoverWrite(flag string) {
 	if r := recover(); r != nil {
-		LogWarnPost(0, "RecoverWrite,%d,%s", msgId, r.(error).Error())
+		LogWarnPost(0, "RecoverWrite,%s,%s", flag, r.(error).Error())
 	}
 }
 
