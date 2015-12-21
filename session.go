@@ -40,6 +40,15 @@ const (
 	SessionConn_Connect = 1 // 主动连接
 )
 
+type ISession interface {
+	initListen(typ uint16, tid uint32, address string, conn *net.TCPListener)
+	initConn(typ uint16, tid uint32, address string, conn *net.TCPConn)
+	GetIPAddress() string
+	run()
+	runReader()
+	runWriter()
+}
+
 // 发送消息给唯一go程
 // 从网络接口接收数据
 // 发送数据给合适的go线程->Actor模式(邮箱)
