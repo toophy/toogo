@@ -41,10 +41,8 @@ const (
 )
 
 type ISession interface {
-	initListen(typ uint16, tid uint32, address string, conn *net.TCPListener)
-	initConn(typ uint16, tid uint32, address string, conn *net.TCPConn)
+	Init(typ uint16, tid uint32, address string, conn interface{})
 	GetIPAddress() string
-	run()
 	runReader()
 	runWriter()
 }
@@ -66,33 +64,33 @@ type Session struct {
 	connListen *net.TCPListener // 侦听连接
 }
 
-func (this *Session) initListen(typ uint16, tid uint32, address string, conn *net.TCPListener) {
+func (this *Session) Init(typ uint16, tid uint32, address string, conn interface{}) bool {
+	switch conn.(type) {
+	case *net.TCPListener:
+		this.ConnType = SessionConn_Listen
+
+	case *net.TCPConn:
+		this.ConnType = SessionConn_Connect
+	default:
+		return false
+	}
+
 	this.PacketType = typ
-	this.ConnType = SessionConn_Listen
 	this.MailId, _ = GetThreadMsgs().AllocId()
 	this.toMailId = tid
 	this.ipAddress = address
 	this.connListen = conn
-}
 
-func (this *Session) initConn(typ uint16, tid uint32, address string, conn *net.TCPConn) {
-	this.PacketType = typ
-	this.ConnType = SessionConn_Connect
-	this.MailId, _ = GetThreadMsgs().AllocId()
-	this.toMailId = tid
-	this.ipAddress = address
-	this.connClient = conn
-}
-
-func (this *Session) GetIPAddress() string {
-	return this.ipAddress
-}
-
-func (this *Session) run() {
 	EnterThread()
 	go this.runReader()
 	EnterThread()
 	go this.runWriter()
+
+	return true
+}
+
+func (this *Session) GetIPAddress() string {
+	return this.ipAddress
 }
 
 func (this *Session) runReader() {
@@ -317,7 +315,7 @@ func Listen(typ uint16, tid uint32, name, net_type, address string, accpetQuit b
 		}
 
 		ln := newSession(name)
-		ln.initListen(typ, tid, address, listener)
+		ln.Init(typ, tid, address, listener)
 
 		LogInfoPost(0, "listen ok")
 		PostThreadMsg(tid, &Tmsg_net{0, "listen ok", name, ""})
@@ -332,8 +330,7 @@ func Listen(typ uint16, tid uint32, name, net_type, address string, accpetQuit b
 				continue
 			}
 			c := newSession("")
-			c.initConn(typ, tid, "", conn)
-			c.run()
+			c.Init(typ, tid, "", conn)
 			LogInfoPost(0, "accept ok")
 			PostThreadMsg(tid, &Tmsg_net{c.SessionId, "accept ok", "", ""})
 		}
@@ -370,8 +367,7 @@ func Connect(typ uint16, tid uint32, name, net_type, address string) {
 			PostThreadMsg(tid, &Tmsg_net{0, "connect failed", name, "Connect dialtcp failed: '" + address + "' " + err.Error()})
 		} else {
 			c := newSession(name)
-			c.initConn(typ, tid, "", conn)
-			c.run()
+			c.Init(typ, tid, "", conn)
 			PostThreadMsg(tid, &Tmsg_net{c.SessionId, "connect ok", name, ""})
 		}
 	}(tid, name, net_type, address)
