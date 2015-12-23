@@ -53,3 +53,11 @@ func (this *Tmsg_packet) Exec(home interface{}) bool {
 
 	return false
 }
+
+// type BigPacket struct {
+// 	Flag  uint64
+// 	Len   uint32
+// 	Count uint16
+// 	Type  uint8
+// 	Data  []byte // 数据
+// }
