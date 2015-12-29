@@ -40,13 +40,6 @@ const (
 	SessionConn_Connect = 1 // 主动连接
 )
 
-type ISession interface {
-	Init(typ uint16, tid uint32, address string, conn interface{})
-	GetIPAddress() string
-	runReader()
-	runWriter()
-}
-
 // 发送消息给唯一go程
 // 从网络接口接收数据
 // 发送数据给合适的go线程->Actor模式(邮箱)
@@ -68,10 +61,13 @@ func (this *Session) Init(typ uint16, tid uint32, address string, conn interface
 	switch conn.(type) {
 	case *net.TCPListener:
 		this.ConnType = SessionConn_Listen
+		this.connListen = conn.(*net.TCPListener)
 
 	case *net.TCPConn:
 		this.ConnType = SessionConn_Connect
+		this.connClient = conn.(*net.TCPConn)
 	default:
+		LogWarnPost(0, "Session:Init don't find conn type!")
 		return false
 	}
 
@@ -79,7 +75,6 @@ func (this *Session) Init(typ uint16, tid uint32, address string, conn interface
 	this.MailId, _ = GetThreadMsgs().AllocId()
 	this.toMailId = tid
 	this.ipAddress = address
-	this.connListen = conn
 
 	EnterThread()
 	go this.runReader()
@@ -93,19 +88,26 @@ func (this *Session) GetIPAddress() string {
 	return this.ipAddress
 }
 
+func getHeaderSize(typ uint16) uint32 {
+	headerSize := uint32(pckC2GHeaderSize)
+	switch typ {
+	case SessionPacket_C2G:
+		headerSize = uint32(pckC2GHeaderSize)
+	case SessionPacket_G2C:
+		headerSize = uint32(pckG2CHeaderSize)
+	case SessionPacket_G2S:
+		headerSize = uint32(pckG2SHeaderSize)
+	case SessionPacket_S2G:
+		headerSize = uint32(pckS2GHeaderSize)
+	}
+	return headerSize
+}
+
 func (this *Session) runReader() {
 	defer LeaveThread()
 	defer RecoverCommon(this.MailId, "Session::runReader:")
 
-	headerSize := uint32(pckCGHeaderSize)
-	switch this.PacketType {
-	case SessionPacket_CG:
-		headerSize = uint32(pckCGHeaderSize)
-	case SessionPacket_SS:
-		headerSize = uint32(pckSSHeaderSize)
-	case SessionPacket_SG:
-		headerSize = uint32(pckSGHeaderSize)
-	}
+	headerSize := getHeaderSize(this.PacketType)
 
 	var err error
 	header := make([]byte, headerSize)
@@ -131,15 +133,18 @@ func (this *Session) runReader() {
 
 		xStream.Seek(0)
 		switch this.PacketType {
-		case SessionPacket_CG:
+		case SessionPacket_C2G:
 			msg.Len = uint32(xStream.ReadUint16())
 			msg.Token = uint32(xStream.ReadUint8())
 			msg.Count = uint16(xStream.ReadUint8())
-		case SessionPacket_SS:
+		case SessionPacket_G2C:
+			msg.Len = uint32(xStream.ReadUint16())
+			msg.Count = uint16(xStream.ReadUint16())
+		case SessionPacket_G2S:
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
-			fmt.Println(header[:])
-		case SessionPacket_SG:
+			msg.Flag = xStream.ReadUint64()
+		case SessionPacket_S2G:
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
 		}
@@ -159,8 +164,6 @@ func (this *Session) runReader() {
 
 		msg.Data = buf
 
-		fmt.Println(buf[:])
-
 		PostThreadMsg(this.toMailId, msg)
 	}
 
@@ -169,15 +172,7 @@ func (this *Session) runReader() {
 
 func (this *Session) runWriter() {
 
-	headerSize := uint32(pckCGHeaderSize)
-	switch this.PacketType {
-	case SessionPacket_CG:
-		headerSize = uint32(pckCGHeaderSize)
-	case SessionPacket_SS:
-		headerSize = uint32(pckSSHeaderSize)
-	case SessionPacket_SG:
-		headerSize = uint32(pckSGHeaderSize)
-	}
+	headerSize := getHeaderSize(this.PacketType)
 
 	defer LeaveThread()
 	defer RecoverCommon(this.MailId, "Session::runWriter:")
@@ -192,7 +187,6 @@ func (this *Session) runWriter() {
 		}
 
 		for {
-
 			n := header.Next
 			if n.IsEmpty() {
 				break

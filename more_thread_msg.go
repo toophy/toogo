@@ -42,13 +42,14 @@ type Tmsg_packet struct {
 
 func (this *Tmsg_packet) Exec(home interface{}) bool {
 	switch this.PacketType {
-	case SessionPacket_CG:
-		return home.(IThread).procCGNetPacket(this)
-	case SessionPacket_SS:
-		return home.(IThread).procSSNetPacket(this)
-	case SessionPacket_SG:
-		// return home.(IThread).procSGNetPacket(this)
-		return home.(IThread).procSSNetPacket(this)
+	case SessionPacket_C2G:
+		return home.(IThread).procC2GNetPacket(this)
+	case SessionPacket_G2C:
+		return home.(IThread).procC2GNetPacket(this)
+	case SessionPacket_S2G:
+		return home.(IThread).procS2GNetPacket(this)
+	case SessionPacket_G2S:
+		return home.(IThread).procC2GNetPacket(this)
 	}
 
 	return false

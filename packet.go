@@ -1,14 +1,15 @@
 package toogo
 
 const (
-	packetHeaderSize = 4 // 小消息包头大小,Len + Count + key : 4字节
-	SessionPacket_CG = 0 // 客户端和Gate连接
-	SessionPacket_SS = 1 // 服务器和服务器连接
-	SessionPacket_SG = 2 // 服务器和Gate连接
-	pckCGHeaderSize  = 4 // CG 类型包头长度
-	pckSSHeaderSize  = 5 // SS 类型包头长度
-	pckSGHeaderSize  = 5 // SG 类型包头长度
-	msgHeaderSize    = 4 // 消息头长度
+	SessionPacket_C2G = 0  // 客户端和Gate连接 C端
+	SessionPacket_G2C = 1  // 客户端和Gate连接 G端
+	SessionPacket_S2G = 2  // 普通服务器和Gate连接 S端
+	SessionPacket_G2S = 3  // 普通服务器和Gate连接 G端
+	pckC2GHeaderSize  = 4  // C2G 类型包头长度
+	pckG2CHeaderSize  = 4  // G2C 类型包头长度
+	pckG2SHeaderSize  = 13 // G2S 类型包头长度
+	pckS2GHeaderSize  = 5  // S2G 类型包头长度
+	msgHeaderSize     = 4  // 消息头长度
 )
 
 // 操作网络封包
@@ -47,6 +48,7 @@ type PacketWriter struct {
 	Count      uint16 // 包内消息数
 	MsgID      uint16 // 当前消息ID
 	PacketType uint16 // 会话类型
+	Flag       uint64 // 标记
 }
 
 // 初始化包
@@ -55,13 +57,7 @@ func (this *PacketWriter) InitWriter(d []byte, pckType uint16, mailId uint32) {
 	this.Count = 0
 	this.MsgID = 0
 	this.PacketType = pckType
-	headerSize := pckCGHeaderSize
-	switch this.PacketType {
-	case SessionPacket_SS:
-		headerSize = pckSSHeaderSize
-	case SessionPacket_SG:
-		headerSize = pckSGHeaderSize
-	}
+	headerSize := getHeaderSize(this.PacketType)
 	this.LastMsgPos = uint64(headerSize)
 	this.Pos = uint64(headerSize)
 	this.MailId = mailId
@@ -95,14 +91,18 @@ func (this *PacketWriter) PacketWriteOver() {
 	this.Pos = 0
 
 	switch this.PacketType {
-	case SessionPacket_CG:
+	case SessionPacket_C2G:
 		this.WriteUint16(uint16(packet_len))
 		this.WriteUint8(uint8(token))
 		this.WriteUint8(uint8(this.Count))
-	case SessionPacket_SS:
+	case SessionPacket_G2C:
+		this.WriteUint16(uint16(packet_len))
+		this.WriteUint16(uint16(this.Count))
+	case SessionPacket_G2S:
 		this.WriteUint24(uint32(packet_len))
 		this.WriteUint16(this.Count)
-	case SessionPacket_SG:
+		this.WriteUint64(this.Flag)
+	case SessionPacket_S2G:
 		this.WriteUint24(uint32(packet_len))
 		this.WriteUint16(this.Count)
 	}

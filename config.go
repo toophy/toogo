@@ -92,11 +92,13 @@ func init() {
 				pt := cc.DefaultString(sec+"PacketType", "CG")
 				switch strings.ToUpper(pt) {
 				case "CG":
-					lp.PacketType = SessionPacket_CG
-				case "SS":
-					lp.PacketType = SessionPacket_SS
+					lp.PacketType = SessionPacket_C2G
+				case "GC":
+					lp.PacketType = SessionPacket_G2C
+				case "GS":
+					lp.PacketType = SessionPacket_G2S
 				case "SG":
-					lp.PacketType = SessionPacket_SG
+					lp.PacketType = SessionPacket_S2G
 				}
 				cfg.ListenPorts[name] = lp
 			}
@@ -115,11 +117,13 @@ func init() {
 				pt := cc.DefaultString(sec+"PacketType", "CG")
 				switch strings.ToUpper(pt) {
 				case "CG":
-					lp.PacketType = SessionPacket_CG
-				case "SS":
-					lp.PacketType = SessionPacket_SS
+					lp.PacketType = SessionPacket_C2G
+				case "GC":
+					lp.PacketType = SessionPacket_G2C
+				case "GS":
+					lp.PacketType = SessionPacket_G2S
 				case "SG":
-					lp.PacketType = SessionPacket_SG
+					lp.PacketType = SessionPacket_S2G
 				}
 				cfg.ConnectPorts[name] = lp
 			}
