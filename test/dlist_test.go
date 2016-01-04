@@ -1,5 +1,6 @@
 package toogo
 
+/*
 import (
 	"fmt"
 	"testing"
@@ -72,3 +73,4 @@ func TestDlist(t *testing.T) {
 
 	g_Pool.Run()
 }
+*/

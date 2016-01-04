@@ -114,9 +114,6 @@ func (this *PacketWriter) PacketWriteOver() {
 func (this *PacketWriter) CopyMsg(d []byte, dLen uint64) bool {
 	defer RecoverCommon(0, "PacketWriter::CopyMsg")
 
-	println(d)
-	println(dLen)
-
 	this.WriteDataEx(d, dLen)
 	this.LastMsgPos = this.LastMsgPos + dLen
 	this.Count++

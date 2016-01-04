@@ -1,10 +1,12 @@
 package toogo
 
+/*
 import (
 	"fmt"
 	"testing"
 	"time"
 )
+
 
 type _task struct {
 	EventNormal
@@ -46,3 +48,4 @@ func Test(t *testing.T) {
 
 	time.Sleep(20 * time.Second)
 }
+*/

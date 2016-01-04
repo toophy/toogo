@@ -78,7 +78,7 @@ func Tgid_make_Sid(sid, pid uint64) uint64 {
 	return sid<<10 | pid
 }
 
-func Tgid_make_Rid(aid, sid, pid uint) uint64 {
+func Tgid_make_Rid(aid, sid, pid uint64) uint64 {
 	return aid<<26 | sid<<10 | pid
 }
 

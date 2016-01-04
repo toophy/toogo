@@ -12,6 +12,7 @@ func newApp() *App {
 	a := new(App)
 	a.sessions = make(map[uint64]*Session, 20)
 	a.sessionNames = make(map[string]*Session, 16)
+	a.sessionTgid = make(map[uint64]uint64, 16)
 	a.config.ListenPorts = make(map[string]listenPort, 3)
 	a.config.ConnectPorts = make(map[string]connectPort, 9)
 	return a
@@ -26,6 +27,7 @@ type App struct {
 	lastSessionId  uint64              // 网络会话ID
 	sessions       map[uint64]*Session // 网络会话池
 	sessionNames   map[string]*Session // 网络会话池(别名)
+	sessionTgid    map[uint64]uint64   // Tgid对应网络会话
 	sessionMutex   sync.RWMutex        // 网络会话池读写锁
 	config         toogoConfig         // 配置信息
 	wg             sync.WaitGroup      // App退出信号组

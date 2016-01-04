@@ -241,6 +241,18 @@ func GetSessionByName(name string) *Session {
 	return nil
 }
 
+// 通过Tgid获取Session, 0表示失败
+func GetSessionIdByTgid(id uint64) uint64 {
+	ToogoApp.sessionMutex.RLock()
+	defer ToogoApp.sessionMutex.RUnlock()
+
+	if v, ok := ToogoApp.sessionTgid[id]; ok {
+		return v
+	}
+
+	return 0
+}
+
 // 新建一个网络会话, 可以使用别名
 func newSession(name string) *Session {
 	s := new(Session)
@@ -402,7 +414,7 @@ func CloseSession(tid uint32, sessionId uint64) {
 }
 
 // 创建一个长度的PacketWriter
-func NewPacket(l int, sessionId uint64) *PacketWriter {
+func NewPacket(l uint32, sessionId uint64) *PacketWriter {
 	defer RecoverCommon(0, "toogo::NewPacket:")
 
 	session := GetSessionById(sessionId)

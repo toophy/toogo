@@ -721,13 +721,11 @@ func (t *Stream) WriteDataEx(d []byte, dLen uint64) {
 			t.Pos = t.Pos + dLen
 			return
 		} else {
-			println("lwlw2")
+			panic(errors.New("Stream:WriteDataEx no long1"))
 		}
-	} else {
-		println("lwlw:", dLen, d_len)
 	}
 
-	panic(errors.New("Stream:WriteData no long"))
+	panic(errors.New("Stream:WriteDataEx no long2"))
 }
 
 func (t *Stream) WriteString(d *string) {

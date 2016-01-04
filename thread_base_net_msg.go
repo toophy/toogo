@@ -90,6 +90,7 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 	//
 	for i := uint16(0); i < m.Count; i++ {
 		// 子消息包头
+		old_packet_pos := p.GetPos()
 		packet_len, errPLen := p.XReadUint24()
 		msg_count, errPCount := p.XReadUint16()
 		flag, errFlag := p.XReadUint64()
@@ -134,14 +135,58 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 
 				p.Seek(old_pos + uint64(msg_len))
 			}
+		} else if Tgid_is_Sid(flag) {
+			// 小区服务器
+			// 直接转发
+			// 子消息包头
+			// packet_len, errPLen := p.XReadUint24()
+			// msg_count, errPCount := p.XReadUint16()
+			// flag, errFlag := p.XReadUint64()
+			// if !errPLen || !errPCount || !errFlag || packet_len <= 0 {
+			// 	errMsg = "读取消息包头失败"
+			// 	return
+			// }
+			// 用到 packet_len, msg_count
+			// 找到这个client? 往里面写?
+
+			// p := toogo.NewPacket(64, sessionId)
+
+			// if p != nil {
+			// 	msgLoginRet := new(proto.G2C_login_ret)
+			// 	msgLoginRet.Ret = 0
+			// 	msgLoginRet.Msg = "ok"
+			// 	msgLoginRet.Write(p)
+
+			// 	toogo.SendPacket(p)
+			// }
+
+			// defer RecoverCommon(0, "toogo::SendPacket:")
+
+			// p.PacketWriteOver()
+			// x := new(Tmsg_packet)
+			// x.Data = p.GetData()
+			// x.Len = uint32(p.GetPos())
+			// x.Count = uint16(p.Count)
+
+			// PostThreadMsg(p.MailId, x)
+
+			// 通过 Sid 找到 session, 用session创建packet, 拷贝包,
+			game_session := GetSessionIdByTgid(flag)
+			if game_session != 0 {
+				px := NewPacket(packet_len, game_session)
+				if px != nil {
+				}
+			}
+
+		} else if Tgid_is_Rid(flag) {
+			// 玩家客户端
+			// 直接转发
+			// 通过 Rid 找到 session, 用session创建packet, 拷贝包,
 		} else {
-			// client
-			// game server(1...n)
-			// mail
-			// chat
-			// ...
+			// 暂时不支持这些, 丢弃吧
 		}
 
+		p.Seek(old_packet_pos + uint64(packet_len))
 	}
 
 	ret = true
