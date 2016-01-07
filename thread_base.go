@@ -40,7 +40,6 @@ type IThread interface {
 
 	// toogo库私有接口
 	procC2GNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是CG类型
-	procSSNetPacket(m *Tmsg_packet) bool  // -- 响应网络消息包 Session是SS类型
 	procS2GNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是SG类型
 	add_log(d string)                     //增加日志信息
 }
