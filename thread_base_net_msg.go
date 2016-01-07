@@ -24,21 +24,20 @@ func (this *Thread) procC2GNetPacket(m *Tmsg_packet) (ret bool) {
 
 	defer RecoverCommon(this.id, "Thread::procC2GNetPacket:")
 
-	p := new(PacketReader)
-	p.InitReader(m.Data, uint16(m.Count))
+	this.packetReader.InitReader(m.Data, uint16(m.Count))
 
-	for i := uint16(0); i < p.Count; i++ {
-		old_pos := p.GetPos()
-		msg_len, errLen := p.XReadUint16()
-		msg_id, errId := p.XReadUint16()
-		p.PreReadMsg(msg_id, msg_len, old_pos)
+	for i := uint16(0); i < this.packetReader.Count; i++ {
+		old_pos := this.packetReader.GetPos()
+		msg_len, errLen := this.packetReader.XReadUint16()
+		msg_id, errId := this.packetReader.XReadUint16()
+		this.packetReader.PreReadMsg(msg_id, msg_len, old_pos)
 
 		if !errLen || !errId {
 			errMsg = "读取消息头失败"
 			return
 		}
 
-		if msg_len < msgHeaderSize || uint64(msg_len) > p.GetMaxLen()-old_pos {
+		if msg_len < msgHeaderSize || uint64(msg_len) > this.packetReader.GetMaxLen()-old_pos {
 			errMsg = "消息长度无效"
 			return
 		}
@@ -54,12 +53,12 @@ func (this *Thread) procC2GNetPacket(m *Tmsg_packet) (ret bool) {
 			return
 		}
 
-		if !fc(p, m.SessionId) {
+		if !fc(&this.packetReader, m.SessionId) {
 			errMsg = "读取消息体失败"
 			return
 		}
 
-		p.Seek(old_pos + uint64(msg_len))
+		this.packetReader.Seek(old_pos + uint64(msg_len))
 	}
 
 	ret = true
@@ -83,36 +82,35 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 
 	defer RecoverCommon(this.id, "Thread::procS2GNetPacket:")
 
-	p := new(PacketReader)
-	p.InitReader(m.Data, uint16(m.Count))
+	this.packetReader.InitReader(m.Data, uint16(m.Count))
 
 	// 包一层消息包
 	//
 	for i := uint16(0); i < m.Count; i++ {
 		// 子消息包头
-		old_packet_pos := p.GetPos()
-		packet_len, errPLen := p.XReadUint24()
-		msg_count, errPCount := p.XReadUint16()
-		flag, errFlag := p.XReadUint64()
-		if !errPLen || !errPCount || !errFlag || packet_len <= 0 {
+		old_packet_pos := this.packetReader.GetPos()
+		packet_len, errPLen := this.packetReader.XReadUint24()
+		msg_count, errPCount := this.packetReader.XReadUint16()
+		targetTgid, errTgid := this.packetReader.XReadUint64()
+		if !errPLen || !errPCount || !errTgid || packet_len <= 0 {
 			errMsg = "读取消息包头失败"
 			return
 		}
 
-		if flag == 0 {
+		if targetTgid == 0 {
 			// for gate message
 			for k := uint16(0); k < msg_count; k++ {
-				old_pos := p.GetPos()
-				msg_len, errLen := p.XReadUint16()
-				msg_id, errId := p.XReadUint16()
-				p.PreReadMsg(msg_id, msg_len, old_pos)
+				old_pos := this.packetReader.GetPos()
+				msg_len, errLen := this.packetReader.XReadUint16()
+				msg_id, errId := this.packetReader.XReadUint16()
+				this.packetReader.PreReadMsg(msg_id, msg_len, old_pos)
 
 				if !errLen || !errId {
 					errMsg = "读取消息头失败"
 					return
 				}
 
-				if msg_len < msgHeaderSize || uint64(msg_len) > p.GetMaxLen()-old_pos {
+				if msg_len < msgHeaderSize || uint64(msg_len) > this.packetReader.GetMaxLen()-old_pos {
 					errMsg = "SG消息长度无效"
 					return
 				}
@@ -128,65 +126,29 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 					return
 				}
 
-				if !fc(p, m.SessionId) {
+				if !fc(&this.packetReader, m.SessionId) {
 					errMsg = "读取消息体失败"
 					return
 				}
 
-				p.Seek(old_pos + uint64(msg_len))
+				this.packetReader.Seek(old_pos + uint64(msg_len))
 			}
-		} else if Tgid_is_Sid(flag) {
-			// 小区服务器
-			// 直接转发
-			// 子消息包头
-			// packet_len, errPLen := p.XReadUint24()
-			// msg_count, errPCount := p.XReadUint16()
-			// flag, errFlag := p.XReadUint64()
-			// if !errPLen || !errPCount || !errFlag || packet_len <= 0 {
-			// 	errMsg = "读取消息包头失败"
-			// 	return
-			// }
-			// 用到 packet_len, msg_count
-			// 找到这个client? 往里面写?
-
-			// p := toogo.NewPacket(64, sessionId)
-
-			// if p != nil {
-			// 	msgLoginRet := new(proto.G2C_login_ret)
-			// 	msgLoginRet.Ret = 0
-			// 	msgLoginRet.Msg = "ok"
-			// 	msgLoginRet.Write(p)
-
-			// 	toogo.SendPacket(p)
-			// }
-
-			// defer RecoverCommon(0, "toogo::SendPacket:")
-
-			// p.PacketWriteOver()
-			// x := new(Tmsg_packet)
-			// x.Data = p.GetData()
-			// x.Len = uint32(p.GetPos())
-			// x.Count = uint16(p.Count)
-
-			// PostThreadMsg(p.MailId, x)
-
-			// 通过 Sid 找到 session, 用session创建packet, 拷贝包,
-			game_session := GetSessionIdByTgid(flag)
+		} else if Tgid_is_Sid(targetTgid) || Tgid_is_Rid(targetTgid) {
+			game_session := GetSessionIdByTgid(targetTgid)
 			if game_session != 0 {
 				px := NewPacket(packet_len, game_session)
 				if px != nil {
+					px.CopyFromPacketReader(&this.packetReader, old_packet_pos, uint64(packet_len))
+					px.Count = msg_count
+					px.Tgid = m.Tgid
+					SendPacket(px)
 				}
 			}
-
-		} else if Tgid_is_Rid(flag) {
-			// 玩家客户端
-			// 直接转发
-			// 通过 Rid 找到 session, 用session创建packet, 拷贝包,
 		} else {
 			// 暂时不支持这些, 丢弃吧
 		}
 
-		p.Seek(old_packet_pos + uint64(packet_len))
+		this.packetReader.Seek(old_packet_pos + uint64(packet_len))
 	}
 
 	ret = true

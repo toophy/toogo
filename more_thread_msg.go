@@ -31,17 +31,17 @@ func (this *Tmsg_net) Exec(home interface{}) bool {
 
 // 消息节点(list节点)
 type Tmsg_packet struct {
-	Flag       uint64 // 中转标记
-	SessionId  uint64 // 会话ID
-	Len        uint32 // 包长度
-	Token      uint32 // 包令牌
-	Count      uint16 // 包内消息数
-	PacketType uint16 // 会话类型
-	Data       []byte // 数据
+	Tgid            uint64 // 中转标记
+	SessionId       uint64 // 会话ID
+	Len             uint32 // 包长度
+	Token           uint32 // 包令牌
+	Count           uint16 // 包内消息数
+	WritePacketType uint16 // 会话类型
+	Data            []byte // 数据
 }
 
 func (this *Tmsg_packet) Exec(home interface{}) bool {
-	switch this.PacketType {
+	switch this.WritePacketType {
 	case SessionPacket_C2G:
 		return home.(IThread).procC2GNetPacket(this)
 	case SessionPacket_G2C:
@@ -54,11 +54,3 @@ func (this *Tmsg_packet) Exec(home interface{}) bool {
 
 	return false
 }
-
-// type BigPacket struct {
-// 	Flag  uint64
-// 	Len   uint32
-// 	Count uint16
-// 	Type  uint8
-// 	Data  []byte // 数据
-// }

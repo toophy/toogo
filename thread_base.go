@@ -93,6 +93,7 @@ type Thread struct {
 	log_FlushTime       int64                 // 日志文件最后写入时间
 	netMsgProc          []NetMsgFunc          // 网络消息函数注册表
 	netMsgMaxId         uint16                // 最大网络消息ID
+	packetReader        PacketReader          // 网络包读者
 }
 
 // 初始化线程(必须调用)

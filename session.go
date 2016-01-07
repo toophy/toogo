@@ -46,15 +46,17 @@ const (
 // 邮箱在哪里? ReadSilk决定还是网络端口决定?
 // 由ReadSilk决定更能解耦网络端口
 type Session struct {
-	SessionId  uint64           // 会话ID
-	MailId     uint32           // 邮箱ID
-	toMailId   uint32           // 目标邮箱ID, 接收到消息都转发到这个邮箱
-	PacketType uint16           // 数据包类型:CG,SS,SG
-	ConnType   uint16           // 类型
-	Name       string           // 别名
-	ipAddress  string           // 网址(或远程网址)
-	connClient *net.TCPConn     // 网络连接
-	connListen *net.TCPListener // 侦听连接
+	SessionId       uint64           // 会话ID
+	Tgid            uint64           // 对应Tgid, 可以1个session对应多个Tgid, 但是1个Tgid只能对应一个session
+	MailId          uint32           // 邮箱ID
+	toMailId        uint32           // 目标邮箱ID, 接收到消息都转发到这个邮箱
+	WritePacketType uint16           // 数据包类型:CG,SS,SG, 特指写包, 读包正好相反
+	ReadPacketType  uint16           // 数据包类型:CG,SS,SG, 特指写包, 写包正好相反
+	ConnType        uint16           // 类型
+	Name            string           // 别名
+	ipAddress       string           // 网址(或远程网址)
+	connClient      *net.TCPConn     // 网络连接
+	connListen      *net.TCPListener // 侦听连接
 }
 
 func (this *Session) Init(typ uint16, tid uint32, address string, conn interface{}) bool {
@@ -71,7 +73,19 @@ func (this *Session) Init(typ uint16, tid uint32, address string, conn interface
 		return false
 	}
 
-	this.PacketType = typ
+	this.WritePacketType = typ
+
+	switch this.WritePacketType {
+	case SessionPacket_C2G:
+		this.ReadPacketType = SessionPacket_G2C
+	case SessionPacket_G2C:
+		this.ReadPacketType = SessionPacket_C2G
+	case SessionPacket_G2S:
+		this.ReadPacketType = SessionPacket_S2G
+	case SessionPacket_S2G:
+		this.ReadPacketType = SessionPacket_G2S
+	}
+
 	this.MailId, _ = GetThreadMsgs().AllocId()
 	this.toMailId = tid
 	this.ipAddress = address
@@ -107,7 +121,7 @@ func (this *Session) runReader() {
 	defer LeaveThread()
 	defer RecoverCommon(this.MailId, "Session::runReader:")
 
-	headerSize := getHeaderSize(this.PacketType)
+	headerSize := getHeaderSize(this.WritePacketType)
 
 	var err error
 	header := make([]byte, headerSize)
@@ -120,7 +134,8 @@ func (this *Session) runReader() {
 
 		if length != int(headerSize) || err != nil {
 			if err == nil {
-				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, fmt.Sprintf("Net packet header : %d != %d\n", length, headerSize)})
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name,
+					fmt.Sprintf("Net packet header : %d != %d\n", length, headerSize)})
 			} else {
 				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, err.Error()})
 			}
@@ -129,10 +144,11 @@ func (this *Session) runReader() {
 
 		msg := new(Tmsg_packet)
 		msg.SessionId = this.SessionId
-		msg.PacketType = this.PacketType
+		msg.WritePacketType = this.WritePacketType
+		msg.Tgid = this.Tgid
 
 		xStream.Seek(0)
-		switch this.PacketType {
+		switch this.ReadPacketType {
 		case SessionPacket_C2G:
 			msg.Len = uint32(xStream.ReadUint16())
 			msg.Token = uint32(xStream.ReadUint8())
@@ -143,7 +159,7 @@ func (this *Session) runReader() {
 		case SessionPacket_G2S:
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
-			msg.Flag = xStream.ReadUint64()
+			msg.Tgid = xStream.ReadUint64()
 		case SessionPacket_S2G:
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
@@ -155,7 +171,8 @@ func (this *Session) runReader() {
 		length, err = io.ReadFull(this.connClient, buf[:])
 		if length != int(body_len) || err != nil {
 			if err == nil {
-				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, fmt.Sprintf("Net packet body : %d != %d\n", length, body_len)})
+				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name,
+					fmt.Sprintf("Net packet body : %d != %d\n", length, body_len)})
 			} else {
 				PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name, err.Error()})
 			}
@@ -172,7 +189,7 @@ func (this *Session) runReader() {
 
 func (this *Session) runWriter() {
 
-	headerSize := getHeaderSize(this.PacketType)
+	headerSize := getHeaderSize(this.WritePacketType)
 
 	defer LeaveThread()
 	defer RecoverCommon(this.MailId, "Session::runWriter:")
@@ -251,6 +268,31 @@ func GetSessionIdByTgid(id uint64) uint64 {
 	}
 
 	return 0
+}
+
+// 通过Id获取会话对象
+func GetSessionTgid(id uint64) uint64 {
+	ToogoApp.sessionMutex.RLock()
+	defer ToogoApp.sessionMutex.RUnlock()
+
+	if v, ok := ToogoApp.sessions[id]; ok {
+		return v.Tgid
+	}
+
+	return 0
+}
+
+// 指定Session对应的Tgid
+func SetSessionTgid(sessionId, tgid uint64) bool {
+	ToogoApp.sessionMutex.Lock()
+	defer ToogoApp.sessionMutex.Unlock()
+
+	if _, ok := ToogoApp.sessions[sessionId]; ok {
+		ToogoApp.sessions[sessionId].Tgid = tgid
+		return true
+	}
+
+	return false
 }
 
 // 新建一个网络会话, 可以使用别名
@@ -417,12 +459,13 @@ func CloseSession(tid uint32, sessionId uint64) {
 func NewPacket(l uint32, sessionId uint64) *PacketWriter {
 	defer RecoverCommon(0, "toogo::NewPacket:")
 
-	session := GetSessionById(sessionId)
-	if session != nil {
+	ToogoApp.sessionMutex.RLock()
+	defer ToogoApp.sessionMutex.RUnlock()
+
+	if v, ok := ToogoApp.sessions[sessionId]; ok {
 		p := new(PacketWriter)
 		d := make([]byte, l)
-		p.InitWriter(d, session.PacketType, session.MailId)
-
+		p.InitWriter(d, v.WritePacketType, v.MailId)
 		return p
 	}
 

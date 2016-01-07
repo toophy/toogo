@@ -15,7 +15,6 @@ const (
 // 操作网络封包
 type PacketReader struct {
 	Stream
-	Data       []byte // 数据
 	CurrMsgPos uint64 // 当前消息开始位置
 	CurrMsgLen uint16 // 当前消息长度
 	CurrMsgId  uint16 // 当前消息Id
@@ -25,8 +24,10 @@ type PacketReader struct {
 // 初始化包
 func (this *PacketReader) InitReader(d []byte, count uint16) {
 	this.Init(d)
+	this.CurrMsgId = 0
+	this.CurrMsgLen = 0
+	this.CurrMsgPos = 0
 	this.Count = count
-	this.Pos = 0
 }
 
 func (this *PacketReader) PreReadMsg(msg_id uint16, msg_len uint16, start_pos uint64) {
@@ -42,13 +43,12 @@ func (this *PacketReader) GetReadMsg() (msg_id uint16, msg_len uint16, start_pos
 // 操作网络封包
 type PacketWriter struct {
 	Stream
-	LastMsgPos uint64 // 最近一个消息终止位置
-	Data       []byte // 数据
-	MailId     uint32 // 会话邮箱
-	Count      uint16 // 包内消息数
-	MsgID      uint16 // 当前消息ID
-	PacketType uint16 // 会话类型
-	Flag       uint64 // 标记
+	LastMsgPos      uint64 // 最近一个消息终止位置
+	MailId          uint32 // 会话邮箱
+	Count           uint16 // 包内消息数
+	MsgID           uint16 // 当前消息ID
+	WritePacketType uint16 // 会话类型
+	Tgid            uint64 // 标记
 }
 
 // 初始化包
@@ -56,8 +56,8 @@ func (this *PacketWriter) InitWriter(d []byte, pckType uint16, mailId uint32) {
 	this.Init(d)
 	this.Count = 0
 	this.MsgID = 0
-	this.PacketType = pckType
-	headerSize := getHeaderSize(this.PacketType)
+	this.WritePacketType = pckType
+	headerSize := getHeaderSize(this.WritePacketType)
 	this.LastMsgPos = uint64(headerSize)
 	this.Pos = uint64(headerSize)
 	this.MailId = mailId
@@ -90,7 +90,7 @@ func (this *PacketWriter) PacketWriteOver() {
 	old_pos := this.Pos
 	this.Pos = 0
 
-	switch this.PacketType {
+	switch this.WritePacketType {
 	case SessionPacket_C2G:
 		this.WriteUint16(uint16(packet_len))
 		this.WriteUint8(uint8(token))
@@ -101,7 +101,7 @@ func (this *PacketWriter) PacketWriteOver() {
 	case SessionPacket_G2S:
 		this.WriteUint24(uint32(packet_len))
 		this.WriteUint16(this.Count)
-		this.WriteUint64(this.Flag)
+		this.WriteUint64(this.Tgid)
 	case SessionPacket_S2G:
 		this.WriteUint24(uint32(packet_len))
 		this.WriteUint16(this.Count)
@@ -117,6 +117,16 @@ func (this *PacketWriter) CopyMsg(d []byte, dLen uint64) bool {
 	this.WriteDataEx(d, dLen)
 	this.LastMsgPos = this.LastMsgPos + dLen
 	this.Count++
+
+	return true
+}
+
+// 拷贝定长消息
+func (this *PacketWriter) CopyFromPacketReader(r *PacketReader, pos uint64, dLen uint64) bool {
+	defer RecoverCommon(0, "PacketWriter::CopyFromPacketReader")
+
+	this.WriteDataEx(r.Data[pos:pos+dLen], dLen)
+	this.LastMsgPos = this.LastMsgPos + dLen
 
 	return true
 }
