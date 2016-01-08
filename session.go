@@ -60,6 +60,8 @@ type Session struct {
 }
 
 func (this *Session) Init(typ uint16, tid uint32, address string, conn interface{}) bool {
+	defer RecoverCommon(this.MailId, "Session::Init:")
+
 	switch conn.(type) {
 	case *net.TCPListener:
 		this.ConnType = SessionConn_Listen
@@ -90,10 +92,12 @@ func (this *Session) Init(typ uint16, tid uint32, address string, conn interface
 	this.toMailId = tid
 	this.ipAddress = address
 
-	EnterThread()
-	go this.runReader()
-	EnterThread()
-	go this.runWriter()
+	if this.ConnType == SessionConn_Connect {
+		EnterThread()
+		go this.runReader()
+		EnterThread()
+		go this.runWriter()
+	}
 
 	return true
 }
@@ -121,7 +125,7 @@ func (this *Session) runReader() {
 	defer LeaveThread()
 	defer RecoverCommon(this.MailId, "Session::runReader:")
 
-	headerSize := getHeaderSize(this.WritePacketType)
+	headerSize := getHeaderSize(this.ReadPacketType)
 
 	var err error
 	header := make([]byte, headerSize)
@@ -144,7 +148,7 @@ func (this *Session) runReader() {
 
 		msg := new(Tmsg_packet)
 		msg.SessionId = this.SessionId
-		msg.WritePacketType = this.WritePacketType
+		msg.PacketType = this.ReadPacketType
 		msg.Tgid = this.Tgid
 
 		xStream.Seek(0)
@@ -164,6 +168,8 @@ func (this *Session) runReader() {
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
 		}
+
+		println("runReader:6")
 
 		// 根据 msg.Len 分配一个 缓冲, 并读取 body
 		body_len := msg.Len - headerSize
@@ -335,10 +341,12 @@ func delSession(id uint64) {
 // address    : 远程服务ip地址
 // accpetQuit : 接收器失败, 就退出
 func Listen(typ uint16, tid uint32, name, net_type, address string, accpetQuit bool) {
+	RecoverCommon(0, "Listen1:")
+
 	EnterThread()
 	go func(tid uint32, name, net_type, address string, accpetQuit bool) {
 		defer LeaveThread()
-		defer RecoverCommon(0, "Listen:")
+		defer RecoverCommon(0, "Listen2:")
 
 		if len(address) == 0 || len(address) == 0 || len(net_type) == 0 {
 			LogWarnPost(0, "listen failed")
@@ -356,13 +364,19 @@ func Listen(typ uint16, tid uint32, name, net_type, address string, accpetQuit b
 		}
 
 		listener, err := net.ListenTCP(net_type, serverAddr)
-		if err != nil {
+		if err != nil || listener == nil {
 			LogWarnPost(0, "TcpSerer ListenTCP: "+err.Error())
 			PostThreadMsg(tid, &Tmsg_net{0, "listen failed", name, "TcpSerer ListenTCP: " + err.Error()})
 			return
 		}
 
 		ln := newSession(name)
+		if ln == nil {
+			LogWarnPost(0, "New Session: failed")
+			PostThreadMsg(tid, &Tmsg_net{0, "listen failed", name, "TcpSerer ListenTCP: " + err.Error()})
+			return
+		}
+
 		ln.Init(typ, tid, address, listener)
 
 		LogInfoPost(0, "listen ok")

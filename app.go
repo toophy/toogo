@@ -37,6 +37,8 @@ type App struct {
 // 应用初始化
 func Run(m IThread) {
 
+	RecoverCommon(0, "App::Run:")
+
 	cfg := &ToogoApp.config
 	ToogoApp.gThreadMsgPool = new(ThreadMsgPool)
 	ToogoApp.gThreadMsgPool.Init(cfg.MsgPoolCount)
