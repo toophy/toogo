@@ -9,6 +9,10 @@ func (this *Thread) RegistNetMsg(id uint16, f NetMsgFunc) {
 	this.netMsgProc[id] = f
 }
 
+func (this *Thread) RegistNetMsgDefault(f NetMsgDefaultFunc) {
+	this.netDefault = f
+}
+
 // 响应网络消息包
 func (this *Thread) procC2GNetPacket(m *Tmsg_packet) (ret bool) {
 
@@ -49,14 +53,21 @@ func (this *Thread) procC2GNetPacket(m *Tmsg_packet) (ret bool) {
 		}
 
 		fc := this.netMsgProc[msg_id]
-		if fc == nil {
-			errMsg = "消息没有对应处理函数:" + strconv.Itoa(int(msg_id))
-			return
-		}
-
-		if !fc(&this.packetReader, m.SessionId) {
-			errMsg = "读取消息体失败"
-			return
+		if fc != nil {
+			if !fc(&this.packetReader, m.SessionId) {
+				errMsg = "读取消息体失败"
+				return
+			}
+		} else {
+			if this.netDefault != nil {
+				if !this.netDefault(msg_id, &this.packetReader, m.SessionId) {
+					errMsg = "读取消息体失败"
+					return
+				}
+			} else {
+				errMsg = "消息没有对应处理函数:" + strconv.Itoa(int(msg_id))
+				return
+			}
 		}
 
 		this.packetReader.Seek(old_pos + uint64(msg_len))
@@ -128,14 +139,21 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 				}
 
 				fc := this.netMsgProc[msg_id]
-				if fc == nil {
-					errMsg = "消息没有对应处理函数:" + strconv.Itoa(int(msg_id))
-					return
-				}
-
-				if !fc(&this.packetReader, m.SessionId) {
-					errMsg = "读取消息体失败"
-					return
+				if fc != nil {
+					if !fc(&this.packetReader, m.SessionId) {
+						errMsg = "读取消息体失败"
+						return
+					}
+				} else {
+					if this.netDefault != nil {
+						if !this.netDefault(msg_id, &this.packetReader, m.SessionId) {
+							errMsg = "读取消息体失败"
+							return
+						}
+					} else {
+						errMsg = "消息没有对应处理函数:" + strconv.Itoa(int(msg_id))
+						return
+					}
 				}
 
 				this.packetReader.Seek(old_pos + uint64(msg_len))

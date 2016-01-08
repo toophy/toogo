@@ -62,6 +62,9 @@ const (
 // 消息函数类型
 type NetMsgFunc func(p *PacketReader, sessionId uint64) bool
 
+// 消息函数类型
+type NetMsgDefaultFunc func(msg_id uint16, p *PacketReader, sessionId uint64) bool
+
 // 线程基本功能
 type Thread struct {
 	id                  uint32                // Id号
@@ -93,6 +96,7 @@ type Thread struct {
 	netMsgProc          []NetMsgFunc          // 网络消息函数注册表
 	netMsgMaxId         uint16                // 最大网络消息ID
 	packetReader        PacketReader          // 网络包读者
+	netDefault          NetMsgDefaultFunc     // 默认网络消息处理函数
 }
 
 // 初始化线程(必须调用)
