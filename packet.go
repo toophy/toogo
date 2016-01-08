@@ -95,16 +95,20 @@ func (this *PacketWriter) PacketWriteOver() {
 		this.WriteUint16(uint16(packet_len))
 		this.WriteUint8(uint8(token))
 		this.WriteUint8(uint8(this.Count))
+		println("SessionPacket_C2G")
 	case SessionPacket_G2C:
 		this.WriteUint16(uint16(packet_len))
 		this.WriteUint16(uint16(this.Count))
+		println("SessionPacket_G2C")
 	case SessionPacket_G2S:
 		this.WriteUint24(uint32(packet_len))
 		this.WriteUint16(this.Count)
 		this.WriteUint64(this.Tgid)
+		println("SessionPacket_G2S")
 	case SessionPacket_S2G:
 		this.WriteUint24(uint32(packet_len))
 		this.WriteUint16(this.Count)
+		println("SessionPacket_S2G")
 	}
 
 	this.Pos = old_pos

@@ -1,6 +1,7 @@
 package toogo
 
 import (
+	"fmt"
 	"strconv"
 )
 
@@ -92,10 +93,14 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 		packet_len, errPLen := this.packetReader.XReadUint24()
 		msg_count, errPCount := this.packetReader.XReadUint16()
 		targetTgid, errTgid := this.packetReader.XReadUint64()
+		println(old_packet_pos, packet_len, msg_count, targetTgid)
 		if !errPLen || !errPCount || !errTgid || packet_len <= 0 {
+			println(errPLen, errPCount, errTgid, packet_len)
 			errMsg = "读取消息包头失败"
 			return
 		}
+
+		fmt.Printf("%-v", m.Data)
 
 		if targetTgid == 0 {
 			// for gate message
@@ -104,6 +109,8 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 				msg_len, errLen := this.packetReader.XReadUint16()
 				msg_id, errId := this.packetReader.XReadUint16()
 				this.packetReader.PreReadMsg(msg_id, msg_len, old_pos)
+
+				println(old_pos, msg_len, msg_id)
 
 				if !errLen || !errId {
 					errMsg = "读取消息头失败"

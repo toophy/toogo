@@ -164,9 +164,12 @@ func (this *Session) runReader() {
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
 			msg.Tgid = xStream.ReadUint64()
+			println("SesionPacket_G2S")
 		case SessionPacket_S2G:
+
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
+			println("SessionPacket_S2G:", msg.Count)
 		}
 
 		println("runReader:6")
@@ -486,6 +489,23 @@ func NewPacket(l uint32, sessionId uint64) *PacketWriter {
 	return nil
 }
 
+// 创建一个长度的PacketWriter
+func NewPacketEx(l uint32, sessionId uint64, writePacketType uint16) *PacketWriter {
+	defer RecoverCommon(0, "toogo::NewPacket:")
+
+	ToogoApp.sessionMutex.RLock()
+	defer ToogoApp.sessionMutex.RUnlock()
+
+	if v, ok := ToogoApp.sessions[sessionId]; ok {
+		p := new(PacketWriter)
+		d := make([]byte, l)
+		p.InitWriter(d, writePacketType, v.MailId)
+		return p
+	}
+
+	return nil
+}
+
 // 发送网络消息包
 func SendPacket(p *PacketWriter) bool {
 
@@ -498,6 +518,8 @@ func SendPacket(p *PacketWriter) bool {
 	x.Count = uint16(p.Count)
 
 	PostThreadMsg(p.MailId, x)
+
+	fmt.Printf("%-v", x.Data)
 
 	return false
 }
