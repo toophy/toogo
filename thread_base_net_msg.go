@@ -1,7 +1,6 @@
 package toogo
 
 import (
-	"fmt"
 	"strconv"
 )
 
@@ -104,15 +103,11 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 		packet_len, errPLen := this.packetReader.XReadUint24()
 		msg_count, errPCount := this.packetReader.XReadUint16()
 		targetTgid, errTgid := this.packetReader.XReadUint64()
-		println(old_packet_pos, packet_len, msg_count, targetTgid)
 		if !errPLen || !errPCount || !errTgid || packet_len <= 0 {
-			println(errPLen, errPCount, errTgid, packet_len)
 			errMsg = "读取消息包头失败"
 			return
 		}
-
-		fmt.Printf("%-v", m.Data)
-
+		println("game_session0")
 		if targetTgid == 0 {
 			// for gate message
 			for k := uint16(0); k < msg_count; k++ {
@@ -120,8 +115,6 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 				msg_len, errLen := this.packetReader.XReadUint16()
 				msg_id, errId := this.packetReader.XReadUint16()
 				this.packetReader.PreReadMsg(msg_id, msg_len, old_pos)
-
-				println(old_pos, msg_len, msg_id)
 
 				if !errLen || !errId {
 					errMsg = "读取消息头失败"
@@ -158,12 +151,28 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 
 				this.packetReader.Seek(old_pos + uint64(msg_len))
 			}
-		} else if Tgid_is_Sid(targetTgid) || Tgid_is_Rid(targetTgid) {
+		} else if Tgid_is_Sid(targetTgid) {
+
 			game_session := GetSessionIdByTgid(targetTgid)
+			println("game_session1", game_session, targetTgid, i, old_packet_pos, packet_len, msg_count)
 			if game_session != 0 {
+				println("game_session2", game_session)
 				px := NewPacket(packet_len, game_session)
 				if px != nil {
-					px.CopyFromPacketReader(&this.packetReader, old_packet_pos, uint64(packet_len))
+					px.CopyFromPacketReader(&this.packetReader, old_packet_pos+13, uint64(packet_len-13))
+					px.Count = msg_count
+					px.Tgid = m.Tgid
+					SendPacket(px)
+				}
+			}
+		} else if Tgid_is_Rid(targetTgid) {
+			game_session := GetSessionIdByTgid(targetTgid)
+			println("game_session10", game_session, targetTgid, i, old_packet_pos, packet_len, msg_count)
+			if game_session != 0 {
+				println("game_session12", game_session)
+				px := NewPacket(packet_len, game_session)
+				if px != nil {
+					px.CopyFromPacketReader(&this.packetReader, old_packet_pos+13, uint64(packet_len-13))
 					px.Count = msg_count
 					px.Tgid = m.Tgid
 					SendPacket(px)

@@ -164,15 +164,11 @@ func (this *Session) runReader() {
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
 			msg.Tgid = xStream.ReadUint64()
-			println("SesionPacket_G2S")
 		case SessionPacket_S2G:
 
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
-			println("SessionPacket_S2G:", msg.Count)
 		}
-
-		println("runReader:6")
 
 		// 根据 msg.Len 分配一个 缓冲, 并读取 body
 		body_len := msg.Len - headerSize
@@ -301,6 +297,17 @@ func SetSessionTgid(sessionId, tgid uint64) bool {
 		return true
 	}
 
+	return false
+}
+
+// 指定Tgid对应的Session
+func SetTgidSession(tgid, sessionId uint64) bool {
+	ToogoApp.sessionMutex.Lock()
+	defer ToogoApp.sessionMutex.Unlock()
+	if _, ok := ToogoApp.sessionTgid[tgid]; !ok {
+		ToogoApp.sessionTgid[tgid] = sessionId
+		return true
+	}
 	return false
 }
 
@@ -517,9 +524,9 @@ func SendPacket(p *PacketWriter) bool {
 	x.Len = uint32(p.GetPos())
 	x.Count = uint16(p.Count)
 
-	PostThreadMsg(p.MailId, x)
+	fmt.Printf("%-v\n", x.Data)
 
-	fmt.Printf("%-v", x.Data)
+	PostThreadMsg(p.MailId, x)
 
 	return false
 }
