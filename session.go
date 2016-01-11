@@ -165,7 +165,6 @@ func (this *Session) runReader() {
 			msg.Count = uint16(xStream.ReadUint16())
 			msg.Tgid = xStream.ReadUint64()
 		case SessionPacket_S2G:
-
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
 		}
@@ -287,6 +286,20 @@ func GetSessionTgid(id uint64) uint64 {
 	return 0
 }
 
+// 获取会话建议信息(拷贝)
+func GetSessionEasy(id uint64) (s Session) {
+	ToogoApp.sessionMutex.RLock()
+	defer ToogoApp.sessionMutex.RUnlock()
+
+	if v, ok := ToogoApp.sessions[id]; ok {
+		s = *v
+		s.connClient = nil
+		s.connListen = nil
+	}
+
+	return
+}
+
 // 指定Session对应的Tgid
 func SetSessionTgid(sessionId, tgid uint64) bool {
 	ToogoApp.sessionMutex.Lock()
@@ -390,7 +403,7 @@ func Listen(typ uint16, tid uint32, name, net_type, address string, accpetQuit b
 		ln.Init(typ, tid, address, listener)
 
 		LogInfoPost(0, "listen ok")
-		PostThreadMsg(tid, &Tmsg_net{0, "listen ok", name, ""})
+		PostThreadMsg(tid, &Tmsg_net{ln.SessionId, "listen ok", name, ""})
 
 		for {
 			conn, err := listener.AcceptTCP()
@@ -513,6 +526,17 @@ func NewPacketEx(l uint32, sessionId uint64, writePacketType uint16) *PacketWrit
 	return nil
 }
 
+// 创建一个PacketWriter
+func NewPacketX(l uint32, mailId uint32, writePacketType uint16) *PacketWriter {
+	defer RecoverCommon(0, "toogo::NewPacket:")
+
+	p := new(PacketWriter)
+	d := make([]byte, l)
+	p.InitWriter(d, writePacketType, mailId)
+
+	return p
+}
+
 // 发送网络消息包
 func SendPacket(p *PacketWriter) bool {
 
@@ -523,8 +547,6 @@ func SendPacket(p *PacketWriter) bool {
 	x.Data = p.GetData()
 	x.Len = uint32(p.GetPos())
 	x.Count = uint16(p.Count)
-
-	fmt.Printf("%-v\n", x.Data)
 
 	PostThreadMsg(p.MailId, x)
 

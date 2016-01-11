@@ -292,33 +292,49 @@ func (t *Stream) ReadFloat64() float64 {
 	panic(errors.New("Stream:ReadFloat64 no long"))
 }
 
-func (t *Stream) ReadBytes() []byte {
+func (t *Stream) ReadBytes() (r []byte) {
 	data_len := uint64(t.ReadUint16())
-	if data_len > 0 && (t.Pos+data_len) < (t.MaxLen+1) {
+	if data_len == 0 {
+		return
+	}
+
+	if t.Pos+data_len < t.MaxLen+1 {
 		o := t.Pos
 		t.Pos = t.Pos + data_len
-		return t.Data[o : o+data_len]
+		r = t.Data[o : o+data_len]
+		return
 	}
+
 	panic(errors.New("Stream:ReadBytes no long"))
 }
 
-func (t *Stream) ReadData(data_len uint64) []byte {
-	if data_len > 0 && (t.Pos+data_len) < (t.MaxLen+1) {
+func (t *Stream) ReadData(data_len uint64) (r []byte) {
+	if data_len == 0 {
+		return
+	}
+
+	if t.Pos+data_len < t.MaxLen+1 {
 		o := t.Pos
 		t.Pos = t.Pos + data_len
-		return t.Data[o : o+data_len]
+		r = t.Data[o : o+data_len]
+		return
 	}
 	panic(errors.New("Stream:ReadData no long"))
 }
 
 func (t *Stream) ReadString() string {
 	data_len := uint64(t.ReadUint16())
-	if data_len > 0 && (t.Pos+data_len) < (t.MaxLen+1) {
+	if data_len == 0 {
+		return ""
+	}
+
+	if t.Pos+data_len < t.MaxLen+1 {
 		o := t.Pos
 		t.Pos = t.Pos + data_len
 		ret := string(t.Data[o : o+data_len])
 		return ret
 	}
+
 	panic(errors.New(fmt.Sprintf("Stream:ReadString no long[%d,%d,%d]", data_len, t.Pos+data_len, t.MaxLen)))
 }
 
@@ -693,8 +709,10 @@ func (t *Stream) WriteBytes(d []byte) {
 
 	if t.Pos+d_len+1 < t.MaxLen {
 		t.WriteUint16(uint16(d_len))
-		copy(t.Data[t.Pos:], d[:])
-		t.Pos = t.Pos + d_len
+		if d_len > 0 {
+			copy(t.Data[t.Pos:], d[:])
+			t.Pos = t.Pos + d_len
+		}
 		return
 	}
 
@@ -703,6 +721,9 @@ func (t *Stream) WriteBytes(d []byte) {
 
 func (t *Stream) WriteData(d []byte) {
 	d_len := uint64(len(d))
+	if d_len == 0 {
+		return
+	}
 
 	if t.Pos+d_len < t.MaxLen+1 {
 		copy(t.Data[t.Pos:], d[:])
@@ -715,7 +736,11 @@ func (t *Stream) WriteData(d []byte) {
 
 func (t *Stream) WriteDataEx(d []byte, dLen uint64) {
 	d_len := uint64(len(d))
-	if dLen > 0 && dLen <= d_len {
+	if d_len == 0 {
+		return
+	}
+
+	if dLen <= d_len {
 		if t.Pos+dLen < t.MaxLen+1 {
 			copy(t.Data[t.Pos:], d[:])
 			t.Pos = t.Pos + dLen
@@ -733,8 +758,10 @@ func (t *Stream) WriteString(d *string) {
 
 	if t.Pos+d_len+1 < t.MaxLen {
 		t.WriteUint16(uint16(d_len))
-		copy(t.Data[t.Pos:t.Pos+d_len], (*d)[:])
-		t.Pos = t.Pos + d_len
+		if d_len > 0 {
+			copy(t.Data[t.Pos:t.Pos+d_len], (*d)[:])
+			t.Pos = t.Pos + d_len
+		}
 		return
 	}
 	panic(errors.New(fmt.Sprintf("Stream:WriteString no long[%d,%d]", t.Pos+d_len+1, t.MaxLen)))

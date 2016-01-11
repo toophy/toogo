@@ -107,7 +107,6 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 			errMsg = "读取消息包头失败"
 			return
 		}
-		println("game_session0")
 		if targetTgid == 0 {
 			// for gate message
 			for k := uint16(0); k < msg_count; k++ {
@@ -154,9 +153,7 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 		} else if Tgid_is_Sid(targetTgid) {
 
 			game_session := GetSessionIdByTgid(targetTgid)
-			println("game_session1", game_session, targetTgid, i, old_packet_pos, packet_len, msg_count)
 			if game_session != 0 {
-				println("game_session2", game_session)
 				px := NewPacket(packet_len, game_session)
 				if px != nil {
 					px.CopyFromPacketReader(&this.packetReader, old_packet_pos+13, uint64(packet_len-13))
@@ -167,9 +164,7 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 			}
 		} else if Tgid_is_Rid(targetTgid) {
 			game_session := GetSessionIdByTgid(targetTgid)
-			println("game_session10", game_session, targetTgid, i, old_packet_pos, packet_len, msg_count)
 			if game_session != 0 {
-				println("game_session12", game_session)
 				px := NewPacket(packet_len, game_session)
 				if px != nil {
 					px.CopyFromPacketReader(&this.packetReader, old_packet_pos+13, uint64(packet_len-13))

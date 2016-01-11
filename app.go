@@ -10,6 +10,7 @@ import (
 // 创建App
 func newApp() *App {
 	a := new(App)
+	a.lastSessionId = 1
 	a.sessions = make(map[uint64]*Session, 20)
 	a.sessionNames = make(map[string]*Session, 16)
 	a.sessionTgid = make(map[uint64]uint64, 16)
@@ -61,7 +62,7 @@ func Run(m IThread) {
 
 	ToogoApp.wg.Wait()
 	<-time.After(6 * time.Second)
-	fmt.Println("quit " + ToogoApp.config.AppName)
+	println("quit " + ToogoApp.config.AppName)
 }
 
 // 进入线程
