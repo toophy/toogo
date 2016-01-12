@@ -1,15 +1,16 @@
 package toogo
 
 const (
-	SessionPacket_C2G = 0  // 客户端和Gate连接 C端
-	SessionPacket_G2C = 1  // 客户端和Gate连接 G端
-	SessionPacket_S2G = 2  // 普通服务器和Gate连接 S端
-	SessionPacket_G2S = 3  // 普通服务器和Gate连接 G端
-	pckC2GHeaderSize  = 4  // C2G 类型包头长度
-	pckG2CHeaderSize  = 4  // G2C 类型包头长度
-	pckG2SHeaderSize  = 13 // G2S 类型包头长度
-	pckS2GHeaderSize  = 5  // S2G 类型包头长度
-	msgHeaderSize     = 4  // 消息头长度
+	SessionPacket_C2G   = 0  // 客户端和Gate连接 C端
+	SessionPacket_G2C   = 1  // 客户端和Gate连接 G端
+	SessionPacket_S2G   = 2  // 普通服务器和Gate连接 S端
+	SessionPacket_G2S   = 3  // 普通服务器和Gate连接 G端
+	pckC2GHeaderSize    = 4  // C2G 类型包头长度
+	pckG2CHeaderSize    = 4  // G2C 类型包头长度
+	pckG2SHeaderSize    = 13 // G2S 类型包头长度
+	pckS2GHeaderSize    = 5  // S2G 类型包头长度
+	pckS2GSubHeaderSize = 13 // S2G 类型包的子包头长度
+	msgHeaderSize       = 4  // 消息头长度
 )
 
 // 操作网络封包

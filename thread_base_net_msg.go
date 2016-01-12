@@ -151,12 +151,11 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 				this.packetReader.Seek(old_pos + uint64(msg_len))
 			}
 		} else if Tgid_is_Sid(targetTgid) {
-
 			game_session := GetSessionIdByTgid(targetTgid)
 			if game_session != 0 {
 				px := NewPacket(packet_len, game_session)
 				if px != nil {
-					px.CopyFromPacketReader(&this.packetReader, old_packet_pos+13, uint64(packet_len-13))
+					px.CopyFromPacketReader(&this.packetReader, old_packet_pos+pckS2GSubHeaderSize, uint64(packet_len-pckS2GSubHeaderSize))
 					px.Count = msg_count
 					px.Tgid = m.Tgid
 					SendPacket(px)
@@ -167,7 +166,7 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 			if game_session != 0 {
 				px := NewPacket(packet_len, game_session)
 				if px != nil {
-					px.CopyFromPacketReader(&this.packetReader, old_packet_pos+13, uint64(packet_len-13))
+					px.CopyFromPacketReader(&this.packetReader, old_packet_pos+pckS2GSubHeaderSize, uint64(packet_len-pckS2GSubHeaderSize))
 					px.Count = msg_count
 					px.Tgid = m.Tgid
 					SendPacket(px)
