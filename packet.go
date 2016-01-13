@@ -131,3 +131,18 @@ func (this *PacketWriter) CopyFromPacketReader(r *PacketReader, pos uint64, dLen
 
 	return true
 }
+
+// // 大包
+// type PacketBig struct {
+// 	targetWriter map[uint64]map[uint64]uint64 // 目标大包
+// 	flagWriter   map[uint64]*PacketWriter     // 标记者小包
+// }
+
+// 目标
+// 1. 建立PacketWriter集合
+//    a. 第一层: 投递目标
+//    b. 第二层: 投递目标的PacketWriter集合
+//    c. 写入一定长度(toogo.conf设置参数)后, 自动启用一个新PacketWriter
+//    d.
+// 2. 建立线程间消息传送功能集合
+// 确定这两个功能从线程中分拆, 可以独立运作
