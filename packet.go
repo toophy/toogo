@@ -98,11 +98,10 @@ func (this *PacketWriter) PacketWriteOver() {
 		this.WriteUint8(uint8(this.Count))
 	case SessionPacket_G2C:
 		this.WriteUint16(uint16(packet_len))
-		this.WriteUint16(uint16(this.Count))
+		this.WriteUint16(this.Count)
 	case SessionPacket_G2S:
 		this.WriteUint24(uint32(packet_len))
 		this.WriteUint16(this.Count)
-		this.WriteUint64(this.Tgid)
 	case SessionPacket_S2G:
 		this.WriteUint24(uint32(packet_len))
 		this.WriteUint16(this.Count)
@@ -146,3 +145,20 @@ func (this *PacketWriter) CopyFromPacketReader(r *PacketReader, pos uint64, dLen
 //    d.
 // 2. 建立线程间消息传送功能集合
 // 确定这两个功能从线程中分拆, 可以独立运作
+//
+// 3. 子包的形式取消, 都使用消息形式
+//    正常的消息(s2g,g2s)形式就是 msg len tgid
+//    当遇到本次消息的tgid和上一次一样(已经写入了一个消息), 改写上一个消息的tgid,
+//    改写规则是: pid 和sid 等位置都是0(低32位), 高32位用来保存整个连续消息的总长度和数量,
+//    本次写入的消息依然具有tgid, 但是第3个开始就没有tgid, 节省tgid, 同时节省了
+//    消息处理的时候对消息的无效访问(大部分都是转发),
+//    确定是比较绕, 数据杂糅在一起
+//
+//    接到后, 解析消息, 先要看 tgid, 全0表示s给g的消息, 低32位0表示连续给tgid的消息, 这里的tgid可能是0
+//    这个东东做完后, 基本上框架结束了
+//
+//    这个功能叫做网络消息包(有连续消息压缩功能),
+//    这种形式就是被动消息连接, 主动的消息连接可能会打断消息先后, 造成游戏中一些时序操作出现问题,
+//
+//    先做成一个PacketWriter变异版本, 再封装为一个消息包处理者, 再封装为消息包处理器, 同时为多个目标进行消息包封装,
+//    最后具备发送消息包给对应目标的能力(发送给不同Session)
