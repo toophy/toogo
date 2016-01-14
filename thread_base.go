@@ -1,15 +1,26 @@
 package toogo
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 )
 
+// 线程空接口, 继承Thread结构, 必须实现下列接口
+type IThreadChild interface {
+	On_firstRun()                    // -- 只允许thread调用 : 首次运行(在 on_run 前面)
+	On_preRun()                      // -- 只允许thread调用 : 线程最先运行部分
+	On_run()                         // -- 只允许thread调用 : 线程运行部分
+	On_end()                         // -- 只允许thread调用 : 线程结束回调
+	On_netEvent(m *Tmsg_net) bool    // -- 响应网络事件
+	On_registNetMsg()                // -- 注册网络消息的响应函数
+	On_packetError(sessionId uint64) // -- 当网络消息包解析出现问题, 如何处理?
+}
+
 // 线程接口
 type IThread interface {
+	ILog
+	IThreadChild
 	Init_thread(IThread, uint32, string, uint16, int64, uint64) error // 初始化线程
 	Run_thread()                                                      // 运行线程
 	Get_thread_id() uint32                                            // 获取线程ID
@@ -22,26 +33,9 @@ type IThread interface {
 	GetEvent(name string) IEvent // 通过别名获取事件
 	RemoveEvent(e IEvent)        // 删除事件, 只能操作本线程事件
 
-	// 日志系列接口
-	LogDebug(f string, v ...interface{}) // 线程日志 : 调试[D]级别日志
-	LogInfo(f string, v ...interface{})  // 线程日志 : 信息[I]级别日志
-	LogWarn(f string, v ...interface{})  // 线程日志 : 警告[W]级别日志
-	LogError(f string, v ...interface{}) // 线程日志 : 错误[E]级别日志
-	LogFatal(f string, v ...interface{}) // 线程日志 : 致命[F]级别日志
-
-	// 继承Thread结构, 必须实现下列接口
-	On_firstRun()                    // -- 只允许thread调用 : 首次运行(在 on_run 前面)
-	On_preRun()                      // -- 只允许thread调用 : 线程最先运行部分
-	On_run()                         // -- 只允许thread调用 : 线程运行部分
-	On_end()                         // -- 只允许thread调用 : 线程结束回调
-	On_netEvent(m *Tmsg_net) bool    // -- 响应网络事件
-	On_registNetMsg()                // -- 注册网络消息的响应函数
-	On_packetError(sessionId uint64) // -- 当网络消息包解析出现问题, 如何处理?
-
 	// toogo库私有接口
 	procC2GNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是CG类型
 	procS2GNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是SG类型
-	add_log(d string)                     //增加日志信息
 }
 
 const (
@@ -49,12 +43,6 @@ const (
 	evt_gap_bit         = 4      // 心跳时间对应得移位(快速运算使用)
 	evt_lay1_time       = 160000 // 第一层事件池最大支持时间(毫秒)
 	updateCurrTimeCount = 32     // 刷新时间戳变更上线
-	logDebugLevel       = 0      // 日志等级 : 调试信息
-	logInfoLevel        = 1      // 日志等级 : 普通信息
-	logWarnLevel        = 2      // 日志等级 : 警告信息
-	logErrorLevel       = 3      // 日志等级 : 错误信息
-	logFatalLevel       = 4      // 日志等级 : 致命信息
-	logMaxLevel         = 5      // 日志最大等级
 	Tid_master          = 1      // 主线程
 	Tid_last            = 16     // 最后一条重要线程
 )
@@ -67,6 +55,7 @@ type NetMsgDefaultFunc func(msg_id uint16, p *PacketReader, sessionId uint64) bo
 
 // 线程基本功能
 type Thread struct {
+	Log
 	id                  uint32                // Id号
 	name                string                // 线程名称
 	heart_time          int64                 // 心跳时间(毫秒)
@@ -86,13 +75,6 @@ type Thread struct {
 	evt_lastRunCount    uint64                // 最近一次运行次数
 	evt_currRunCount    uint64                // 当前运行次数
 	evt_threadMsg       [Tid_last]*DListNode  // 保存将要发给其他线程的事件(消息)
-	log_Buffer          []byte                // 线程日志缓冲
-	log_BufferLen       int                   // 线程日志缓冲长度
-	log_TimeString      string                // 时间格式(精确到秒2015.08.13 16:33:00)
-	log_Header          [logMaxLevel]string   // 各级别日志头
-	log_FileBuff        bytes.Buffer          // 日志总缓冲, Tid_master才会使用
-	log_FileHandle      *os.File              // 日志文件, Tid_master才会使用
-	log_FlushTime       int64                 // 日志文件最后写入时间
 	netMsgProc          []NetMsgFunc          // 网络消息函数注册表
 	netMsgMaxId         uint16                // 最大网络消息ID
 	packetReader        PacketReader          // 网络包读者
@@ -156,28 +138,7 @@ func (this *Thread) Init_thread(self IThread, id uint32, name string, max_msg_id
 		this.evt_threadMsg[i].Init(nil)
 	}
 
-	// 日志初始化
-	this.log_Buffer = make([]byte, ToogoApp.config.LogBuffMax)
-	this.log_BufferLen = 0
-
-	this.log_TimeString = time.Now().Format("15:04:05")
-	this.MakeLogHeader()
-
-	if this.is_master_thread() {
-		this.log_FileBuff.Grow(ToogoApp.config.LogFileBuffSize)
-
-		if !IsExist(ToogoApp.config.LogFileName) {
-			os.Create(ToogoApp.config.LogFileName)
-		}
-		file, err := os.OpenFile(ToogoApp.config.LogFileName, os.O_RDWR, os.ModePerm)
-		if err != nil {
-			return err
-		}
-		this.log_FileHandle = file
-		this.log_FileHandle.Seek(0, 2)
-		// 第一条日志
-		this.LogDebug("          服务器{%s}启动", ToogoApp.config.AppName)
-	}
+	this.InitLog(this.Get_thread_id())
 
 	if max_msg_id < 1 {
 		panic("网络消息注册表不能为空")
@@ -208,8 +169,7 @@ func (this *Thread) Run_thread() {
 		next_time := time.Duration(this.heart_time)
 		run_time := int64(0)
 
-		this.log_TimeString = time.Now().Format("15:04:05")
-		this.MakeLogHeader()
+		this.UpdateLogTimeHeader()
 
 		this.self.On_firstRun()
 
@@ -217,22 +177,14 @@ func (this *Thread) Run_thread() {
 
 			time.Sleep(next_time)
 
-			this.log_TimeString = time.Now().Format("15:04:05")
-			this.MakeLogHeader()
+			this.UpdateLogTimeHeader()
 
 			this.last_time = time.Now().UnixNano()
 			// 设置当前时间戳(毫秒)
 			this.get_curr_time_count = 1
 			this.curr_time = this.last_time / int64(time.Millisecond)
 
-			// 刷新缓冲日志到文件
-			if this.is_master_thread() && this.log_FlushTime < this.curr_time {
-				this.log_FlushTime = this.curr_time + ToogoApp.config.LogFlushTime
-				if this.log_FileBuff.Len() > 0 {
-					this.log_FileHandle.Write(this.log_FileBuff.Bytes())
-					this.log_FileBuff.Reset()
-				}
-			}
+			this.FlushToFile(this.curr_time)
 
 			this.self.On_preRun()
 
@@ -408,13 +360,7 @@ func (this *Thread) runThreadMsg() {
 
 // 发送线程间消息
 func (this *Thread) sendThreadMsg() {
-
-	// 发送日志到日志线程
-	if !this.is_master_thread() && this.log_BufferLen > 0 {
-		PostThreadMsg(Tid_master, &msgThreadLog{Data: string(this.log_Buffer[:this.log_BufferLen])})
-		copy(this.log_Buffer[:0], "")
-		this.log_BufferLen = 0
-	}
+	this.SendThreadLog()
 
 	for i := uint32(Tid_master); i < Tid_last; i++ {
 		if !this.evt_threadMsg[i].IsEmpty() {

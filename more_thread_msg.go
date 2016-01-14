@@ -13,7 +13,7 @@ type msgThreadLog struct {
 }
 
 func (this *msgThreadLog) Exec(home interface{}) bool {
-	home.(IThread).add_log(this.Data)
+	home.(IThread).AddLog(this.Data)
 	return true
 }
 
