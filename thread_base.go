@@ -161,7 +161,13 @@ func (this *Thread) Run_thread() {
 			this.runEvents((this.last_time - this.start_time) / int64(time.Millisecond))
 			this.self.On_run()
 
-			this.sendThreadMsg()
+			this.SendThreadLog()
+
+			for i := uint32(Tid_master); i < Tid_last; i++ {
+				if !this.threadMsgs[i].IsEmpty() {
+					GetThreadMsgs().PostMsg(i, this.threadMsgs[i])
+				}
+			}
 
 			// 计算下一次运行的时间
 			run_time = time.Now().UnixNano() - this.last_time
@@ -250,17 +256,6 @@ func (this *Thread) runThreadMsg() {
 
 		n.Data.(IThreadMsg).Exec(this.self)
 		n.Pop()
-	}
-}
-
-// 发送线程间消息
-func (this *Thread) sendThreadMsg() {
-	this.SendThreadLog()
-
-	for i := uint32(Tid_master); i < Tid_last; i++ {
-		if !this.threadMsgs[i].IsEmpty() {
-			GetThreadMsgs().PostMsg(i, this.threadMsgs[i])
-		}
 	}
 }
 
