@@ -18,7 +18,7 @@ type IThreadChild interface {
 
 // 线程接口
 type IThread interface {
-	ILog
+	ILogOs
 	IThreadChild
 	IEventOs
 	Init_thread(IThread, uint32, string, uint16, int64, uint64) error // 初始化线程
@@ -47,9 +47,8 @@ type NetMsgDefaultFunc func(msg_id uint16, p *PacketReader, sessionId uint64) bo
 
 // 线程基本功能
 type Thread struct {
-	Log                                      // 线程日志
+	LogOs                                    // 线程日志
 	EventOs                                  // 线程事件
-	id                  uint32               // Id号
 	name                string               // 线程名称
 	heart_time          int64                // 心跳时间(毫秒)
 	start_time          int64                // 线程开启时间戳
@@ -58,13 +57,12 @@ type Thread struct {
 	get_curr_time_count int64                // 索取当前时间戳次数
 	heart_rate          float64              // 本次心跳比率
 	pre_stop            bool                 // 预备停止
-	self                IThread              // 自己, 初始化之后, 不要操作
 	first_run           bool                 // 线程首次运行
+	netDefault          NetMsgDefaultFunc    // 默认网络消息处理函数
 	netMsgProc          []NetMsgFunc         // 网络消息函数注册表
 	netMsgMaxId         uint16               // 最大网络消息ID
 	packetReader        PacketReader         // 网络包读者
-	netDefault          NetMsgDefaultFunc    // 默认网络消息处理函数
-	evt_threadMsg       [Tid_last]*DListNode // 保存将要发给其他线程的事件(消息)
+	threadMsgs          [Tid_last]*DListNode // 保存将要发给其他线程的事件(消息)
 }
 
 // 初始化线程(必须调用)
@@ -83,7 +81,7 @@ func (this *Thread) Init_thread(self IThread, id uint32, name string, max_msg_id
 		return errors.New("[E] 线程自身指针不能为nil")
 	}
 
-	this.id = id
+	this.threadId = id
 	this.name = name
 	this.heart_time = heart_time * int64(time.Millisecond)
 	this.start_time = time.Now().UnixNano()
@@ -94,12 +92,11 @@ func (this *Thread) Init_thread(self IThread, id uint32, name string, max_msg_id
 	this.curr_time = this.last_time / int64(time.Millisecond)
 
 	this.heart_rate = 1.0
-	this.self = self
 	this.first_run = true
 
 	for i := 0; i < Tid_last; i++ {
-		this.evt_threadMsg[i] = new(DListNode)
-		this.evt_threadMsg[i].Init(nil)
+		this.threadMsgs[i] = new(DListNode)
+		this.threadMsgs[i].Init(nil)
 	}
 
 	errLog := this.InitLog(this.Get_thread_id())
@@ -134,7 +131,7 @@ func (this *Thread) Run_thread() {
 	EnterThread()
 	go func() {
 		defer LeaveThread()
-		defer RecoverCommon(this.id, "Thread::Run_thread:")
+		defer RecoverCommon(this.threadId, "Thread::Run_thread:")
 
 		this.start_time = time.Now().UnixNano()
 		this.last_time = this.start_time
@@ -190,7 +187,7 @@ func (this *Thread) Run_thread() {
 
 // 返回线程编号
 func (this *Thread) Get_thread_id() uint32 {
-	return this.id
+	return this.threadId
 }
 
 // 返回线程名称
@@ -200,7 +197,7 @@ func (this *Thread) Get_thread_name() string {
 
 // 是世界线程
 func (this *Thread) is_master_thread() bool {
-	return this.id == Tid_master
+	return this.threadId == Tid_master
 }
 
 // 预备关闭线程
@@ -215,7 +212,7 @@ func (this *Thread) PostThreadMsg(tid uint32, a IThreadMsg) bool {
 		return false
 	}
 	if tid >= Tid_master && tid < Tid_last {
-		header := this.evt_threadMsg[tid]
+		header := this.threadMsgs[tid]
 
 		n := new(DListNode)
 		if n == nil {
@@ -261,8 +258,8 @@ func (this *Thread) sendThreadMsg() {
 	this.SendThreadLog()
 
 	for i := uint32(Tid_master); i < Tid_last; i++ {
-		if !this.evt_threadMsg[i].IsEmpty() {
-			GetThreadMsgs().PostMsg(i, this.evt_threadMsg[i])
+		if !this.threadMsgs[i].IsEmpty() {
+			GetThreadMsgs().PostMsg(i, this.threadMsgs[i])
 		}
 	}
 }

@@ -19,7 +19,7 @@ type IEventOs interface {
 
 // 线程事件 : 事件系统
 type EventOs struct {
-	masterSelf       IThread               // 自己, 初始化之后, 不要操作
+	self             IThread               // 自己所在线程, 初始化之后, 不要操作
 	evt_lay1         []DListNode           // 第一层事件池
 	evt_lay2         map[uint64]*DListNode // 第二层事件池
 	evt_names        map[string]IEvent     // 别名
@@ -44,7 +44,7 @@ func (this *EventOs) InitEventOs(masterSelf IThread, lay1_time uint64) error {
 		return errors.New("[E] masterSelf 不能为空 ")
 	}
 
-	this.masterSelf = masterSelf
+	this.self = masterSelf
 
 	// 初始化事件池
 	this.evt_lay1Size = lay1_time >> evt_gap_bit
@@ -173,7 +173,7 @@ func (this *EventOs) runExec(header *DListNode) {
 		d := n.Data.(IEvent)
 
 		// 执行事件, 返回true, 删除这个事件, 返回false表示用户自己处理
-		if d.Exec(this.masterSelf) {
+		if d.Exec(this.self) {
 			this.RemoveEvent(d)
 		} else if header.Next == n {
 			// 防止使用者没有删除使用过的事件, 造成死循环, 该事件, 用户要么重新投递到其他链表, 要么删除

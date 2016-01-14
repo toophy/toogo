@@ -26,7 +26,7 @@ func (this *Thread) procC2GNetPacket(m *Tmsg_packet) (ret bool) {
 		}
 	}()
 
-	defer RecoverCommon(this.id, "Thread::procC2GNetPacket:")
+	defer RecoverCommon(this.threadId, "Thread::procC2GNetPacket:")
 
 	this.packetReader.InitReader(m.Data, uint16(m.Count))
 
@@ -91,7 +91,7 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 		}
 	}()
 
-	defer RecoverCommon(this.id, "Thread::procS2GNetPacket:")
+	defer RecoverCommon(this.threadId, "Thread::procS2GNetPacket:")
 
 	this.packetReader.InitReader(m.Data, uint16(m.Count))
 

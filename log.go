@@ -18,7 +18,7 @@ const (
 )
 
 // 线程日志接口
-type ILog interface {
+type ILogOs interface {
 	AddLog(d string)                     //增加日志信息
 	LogDebug(f string, v ...interface{}) // 线程日志 : 调试[D]级别日志
 	LogInfo(f string, v ...interface{})  // 线程日志 : 信息[I]级别日志
@@ -28,8 +28,9 @@ type ILog interface {
 }
 
 // 线程日志系统
-type Log struct {
+type LogOs struct {
 	threadId       uint32              // 线程Id号
+	threadIdStr    string              // 线程Id号字符串
 	log_Buffer     []byte              // 线程日志缓冲
 	log_BufferLen  int                 // 线程日志缓冲长度
 	log_TimeString string              // 时间格式(精确到秒2015.08.13 16:33:00)
@@ -39,8 +40,9 @@ type Log struct {
 	log_FlushTime  int64               // 日志文件最后写入时间
 }
 
-func (this *Log) InitLog(threadId uint32) error {
+func (this *LogOs) InitLog(threadId uint32) error {
 	this.threadId = threadId
+	this.threadIdStr = strconv.Itoa(int(this.threadId))
 	// 日志初始化
 	this.log_Buffer = make([]byte, ToogoApp.config.LogBuffMax)
 	this.log_BufferLen = 0
@@ -60,14 +62,14 @@ func (this *Log) InitLog(threadId uint32) error {
 		this.log_FileHandle = file
 		this.log_FileHandle.Seek(0, 2)
 		// 第一条日志
-		this.LogDebug("          服务器{%s}启动", ToogoApp.config.AppName)
+		this.LogDebug("          {%s}启动成功", ToogoApp.config.AppName)
 	}
 
 	return nil
 }
 
 // 线程日志 : 刷新日志数据到文件
-func (this *Log) FlushToFile(curr_time int64) {
+func (this *LogOs) FlushToFile(curr_time int64) {
 	if this.threadId == Tid_master && this.log_FlushTime < curr_time {
 		this.log_FlushTime = curr_time + ToogoApp.config.LogFlushTime
 		if this.log_FileBuff.Len() > 0 {
@@ -78,19 +80,18 @@ func (this *Log) FlushToFile(curr_time int64) {
 }
 
 // 线程日志 : 更新时间标记头
-func (this *Log) UpdateLogTimeHeader() {
+func (this *LogOs) UpdateLogTimeHeader() {
 	this.log_TimeString = time.Now().Format("15:04:05")
 
-	id_str := strconv.Itoa(int(this.threadId))
-	this.log_Header[logDebugLevel] = this.log_TimeString + " [D] " + id_str + " "
-	this.log_Header[logInfoLevel] = this.log_TimeString + " [I] " + id_str + " "
-	this.log_Header[logWarnLevel] = this.log_TimeString + " [W] " + id_str + " "
-	this.log_Header[logErrorLevel] = this.log_TimeString + " [E] " + id_str + " "
-	this.log_Header[logFatalLevel] = this.log_TimeString + " [F] " + id_str + " "
+	this.log_Header[logDebugLevel] = this.log_TimeString + " [D] " + this.threadIdStr + " "
+	this.log_Header[logInfoLevel] = this.log_TimeString + " [I] " + this.threadIdStr + " "
+	this.log_Header[logWarnLevel] = this.log_TimeString + " [W] " + this.threadIdStr + " "
+	this.log_Header[logErrorLevel] = this.log_TimeString + " [E] " + this.threadIdStr + " "
+	this.log_Header[logFatalLevel] = this.log_TimeString + " [F] " + this.threadIdStr + " "
 }
 
 // 线程日志 : 发送线程间消息
-func (this *Log) SendThreadLog() {
+func (this *LogOs) SendThreadLog() {
 	// 发送日志到日志线程
 	if this.threadId != Tid_master && this.log_BufferLen > 0 {
 		PostThreadMsg(Tid_master, &msgThreadLog{Data: string(this.log_Buffer[:this.log_BufferLen])})
@@ -100,32 +101,32 @@ func (this *Log) SendThreadLog() {
 }
 
 // 线程日志 : 调试[D]级别日志
-func (this *Log) LogDebug(f string, v ...interface{}) {
+func (this *LogOs) LogDebug(f string, v ...interface{}) {
 	this.logBase(logDebugLevel, fmt.Sprintf(f, v...))
 }
 
 // 线程日志 : 信息[I]级别日志
-func (this *Log) LogInfo(f string, v ...interface{}) {
+func (this *LogOs) LogInfo(f string, v ...interface{}) {
 	this.logBase(logInfoLevel, fmt.Sprintf(f, v...))
 }
 
 // 线程日志 : 警告[W]级别日志
-func (this *Log) LogWarn(f string, v ...interface{}) {
+func (this *LogOs) LogWarn(f string, v ...interface{}) {
 	this.logBase(logWarnLevel, fmt.Sprintf(f, v...))
 }
 
 // 线程日志 : 错误[E]级别日志
-func (this *Log) LogError(f string, v ...interface{}) {
+func (this *LogOs) LogError(f string, v ...interface{}) {
 	this.logBase(logErrorLevel, fmt.Sprintf(f, v...))
 }
 
 // 线程日志 : 致命[F]级别日志
-func (this *Log) LogFatal(f string, v ...interface{}) {
+func (this *LogOs) LogFatal(f string, v ...interface{}) {
 	this.logBase(logFatalLevel, fmt.Sprintf(f, v...))
 }
 
 // 线程日志 : 手动分级日志
-func (this *Log) logBase(level int, info string) {
+func (this *LogOs) logBase(level int, info string) {
 	lenInfo := len(info)
 	if lenInfo < 1 {
 		return
@@ -156,7 +157,7 @@ func (this *Log) logBase(level int, info string) {
 }
 
 // 增加日志到缓冲
-func (this *Log) AddLog(d string) {
+func (this *LogOs) AddLog(d string) {
 	if this.threadId == Tid_master {
 		this.log_FileBuff.WriteString(d)
 	}
