@@ -2,7 +2,6 @@ package toogo
 
 import (
 	"errors"
-	"fmt"
 	"time"
 )
 
@@ -21,6 +20,7 @@ type IThreadChild interface {
 type IThread interface {
 	ILog
 	IThreadChild
+	IEventOs
 	Init_thread(IThread, uint32, string, uint16, int64, uint64) error // 初始化线程
 	Run_thread()                                                      // 运行线程
 	Get_thread_id() uint32                                            // 获取线程ID
@@ -28,23 +28,15 @@ type IThread interface {
 	Pre_close_thread()                                                // -- 只允许thread调用 : 预备关闭线程
 	RegistNetMsg(id uint16, f NetMsgFunc)                             // -- 注册网络消息处理函数
 
-	// 事件处理系列接口
-	PostEvent(a IEvent) bool     // 投递定时器事件
-	GetEvent(name string) IEvent // 通过别名获取事件
-	RemoveEvent(e IEvent)        // 删除事件, 只能操作本线程事件
-
 	// toogo库私有接口
 	procC2GNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是CG类型
 	procS2GNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是SG类型
 }
 
 const (
-	evt_gap_time        = 16     // 心跳时间(毫秒)
-	evt_gap_bit         = 4      // 心跳时间对应得移位(快速运算使用)
-	evt_lay1_time       = 160000 // 第一层事件池最大支持时间(毫秒)
-	updateCurrTimeCount = 32     // 刷新时间戳变更上线
-	Tid_master          = 1      // 主线程
-	Tid_last            = 16     // 最后一条重要线程
+	updateCurrTimeCount = 32 // 刷新时间戳变更上线
+	Tid_master          = 1  // 主线程
+	Tid_last            = 16 // 最后一条重要线程
 )
 
 // 消息函数类型
@@ -55,30 +47,24 @@ type NetMsgDefaultFunc func(msg_id uint16, p *PacketReader, sessionId uint64) bo
 
 // 线程基本功能
 type Thread struct {
-	Log
-	id                  uint32                // Id号
-	name                string                // 线程名称
-	heart_time          int64                 // 心跳时间(毫秒)
-	start_time          int64                 // 线程开启时间戳
-	last_time           int64                 // 最近一次线程运行时间戳
-	curr_time           int64                 // 当前时间戳(毫秒)
-	get_curr_time_count int64                 // 索取当前时间戳次数
-	heart_rate          float64               // 本次心跳比率
-	pre_stop            bool                  // 预备停止
-	self                IThread               // 自己, 初始化之后, 不要操作
-	first_run           bool                  // 线程首次运行
-	evt_lay1            []DListNode           // 第一层事件池
-	evt_lay2            map[uint64]*DListNode // 第二层事件池
-	evt_names           map[string]IEvent     // 别名
-	evt_lay1Size        uint64                // 第一层池容量
-	evt_lay1Cursor      uint64                // 第一层游标
-	evt_lastRunCount    uint64                // 最近一次运行次数
-	evt_currRunCount    uint64                // 当前运行次数
-	evt_threadMsg       [Tid_last]*DListNode  // 保存将要发给其他线程的事件(消息)
-	netMsgProc          []NetMsgFunc          // 网络消息函数注册表
-	netMsgMaxId         uint16                // 最大网络消息ID
-	packetReader        PacketReader          // 网络包读者
-	netDefault          NetMsgDefaultFunc     // 默认网络消息处理函数
+	Log                                      // 线程日志
+	EventOs                                  // 线程事件
+	id                  uint32               // Id号
+	name                string               // 线程名称
+	heart_time          int64                // 心跳时间(毫秒)
+	start_time          int64                // 线程开启时间戳
+	last_time           int64                // 最近一次线程运行时间戳
+	curr_time           int64                // 当前时间戳(毫秒)
+	get_curr_time_count int64                // 索取当前时间戳次数
+	heart_rate          float64              // 本次心跳比率
+	pre_stop            bool                 // 预备停止
+	self                IThread              // 自己, 初始化之后, 不要操作
+	first_run           bool                 // 线程首次运行
+	netMsgProc          []NetMsgFunc         // 网络消息函数注册表
+	netMsgMaxId         uint16               // 最大网络消息ID
+	packetReader        PacketReader         // 网络包读者
+	netDefault          NetMsgDefaultFunc    // 默认网络消息处理函数
+	evt_threadMsg       [Tid_last]*DListNode // 保存将要发给其他线程的事件(消息)
 }
 
 // 初始化线程(必须调用)
@@ -97,14 +83,6 @@ func (this *Thread) Init_thread(self IThread, id uint32, name string, max_msg_id
 		return errors.New("[E] 线程自身指针不能为nil")
 	}
 
-	if lay1_time < evt_gap_time || lay1_time > evt_lay1_time {
-		return errors.New("[E] 第一层支持16毫秒到160000毫秒")
-	}
-
-	if len(this.evt_names) > 0 {
-		return errors.New("[E] EventHome 已经初始化过")
-	}
-
 	this.id = id
 	this.name = name
 	this.heart_time = heart_time * int64(time.Millisecond)
@@ -119,26 +97,20 @@ func (this *Thread) Init_thread(self IThread, id uint32, name string, max_msg_id
 	this.self = self
 	this.first_run = true
 
-	// 初始化事件池
-	this.evt_lay1Size = lay1_time >> evt_gap_bit
-	this.evt_lay1Cursor = 0
-	this.evt_currRunCount = 1
-	this.evt_lastRunCount = this.evt_currRunCount
-
-	this.evt_lay1 = make([]DListNode, this.evt_lay1Size)
-	this.evt_lay2 = make(map[uint64]*DListNode, 0)
-	this.evt_names = make(map[string]IEvent, 0)
-
-	for i := uint64(0); i < this.evt_lay1Size; i++ {
-		this.evt_lay1[i].Init(nil)
-	}
-
 	for i := 0; i < Tid_last; i++ {
 		this.evt_threadMsg[i] = new(DListNode)
 		this.evt_threadMsg[i].Init(nil)
 	}
 
-	this.InitLog(this.Get_thread_id())
+	errLog := this.InitLog(this.Get_thread_id())
+	if errLog != nil {
+		return errLog
+	}
+
+	errEventOs := this.InitEventOs(self, lay1_time)
+	if errEventOs != nil {
+		return errEventOs
+	}
 
 	if max_msg_id < 1 {
 		panic("网络消息注册表不能为空")
@@ -189,7 +161,7 @@ func (this *Thread) Run_thread() {
 			this.self.On_preRun()
 
 			this.runThreadMsg()
-			this.runEvents()
+			this.runEvents((this.last_time - this.start_time) / int64(time.Millisecond))
 			this.self.On_run()
 
 			this.sendThreadMsg()
@@ -236,67 +208,6 @@ func (this *Thread) Pre_close_thread() {
 	this.pre_stop = true
 }
 
-// 投递定时器事件
-func (this *Thread) PostEvent(a IEvent) bool {
-	check_name := len(a.GetName()) > 0
-	if check_name {
-		if _, ok := this.evt_names[a.GetName()]; ok {
-			return false
-		}
-	}
-
-	if a.GetTouchTime() < 0 {
-		return false
-	}
-
-	// 计算放在那一层
-	pos := (a.GetTouchTime() + evt_gap_time - 1) >> evt_gap_bit
-	if pos < 0 {
-		pos = 1
-	}
-
-	var header *DListNode
-
-	if pos < this.evt_lay1Size {
-		new_pos := this.evt_lay1Cursor + pos
-		if new_pos >= this.evt_lay1Size {
-			new_pos = new_pos - this.evt_lay1Size
-		}
-		pos = new_pos
-		header = &this.evt_lay1[pos]
-	} else {
-		if _, ok := this.evt_lay2[pos]; !ok {
-			this.evt_lay2[pos] = new(DListNode)
-			this.evt_lay2[pos].Init(nil)
-		}
-		header = this.evt_lay2[pos]
-	}
-
-	if header == nil {
-		return false
-	}
-
-	n := &DListNode{}
-	n.Init(a)
-
-	if !a.AddNode(n) {
-		return false
-	}
-
-	old_pre := header.Pre
-
-	header.Pre = n
-	n.Next = header
-	n.Pre = old_pre
-	old_pre.Next = n
-
-	if check_name {
-		this.evt_names[a.GetName()] = a
-	}
-
-	return true
-}
-
 // 投递线程间消息
 func (this *Thread) PostThreadMsg(tid uint32, a IThreadMsg) bool {
 	if tid == this.Get_thread_id() {
@@ -326,19 +237,6 @@ func (this *Thread) PostThreadMsg(tid uint32, a IThreadMsg) bool {
 	return false
 }
 
-// 通过别名获取事件
-func (this *Thread) GetEvent(name string) IEvent {
-	if _, ok := this.evt_names[name]; ok {
-		return this.evt_names[name]
-	}
-	return nil
-}
-
-func (this *Thread) RemoveEvent(e IEvent) {
-	delete(this.evt_names, e.GetName())
-	e.Destroy()
-}
-
 // 接收并处理线程间消息
 func (this *Thread) runThreadMsg() {
 
@@ -366,69 +264,6 @@ func (this *Thread) sendThreadMsg() {
 		if !this.evt_threadMsg[i].IsEmpty() {
 			GetThreadMsgs().PostMsg(i, this.evt_threadMsg[i])
 		}
-	}
-}
-
-// 运行一次定时器事件(一个线程心跳可以处理多次)
-func (this *Thread) runEvents() {
-	all_time := (this.last_time - this.start_time) / int64(time.Millisecond)
-
-	all_count := uint64((all_time + evt_gap_time - 1) >> evt_gap_bit)
-
-	for i := this.evt_lastRunCount; i <= all_count; i++ {
-		// 执行第一层事件
-		this.runExec(&this.evt_lay1[this.evt_lay1Cursor])
-
-		// 执行第二层事件
-		if _, ok := this.evt_lay2[this.evt_currRunCount]; ok {
-			this.runExec(this.evt_lay2[this.evt_currRunCount])
-			delete(this.evt_lay2, this.evt_currRunCount)
-		}
-
-		this.evt_currRunCount++
-		this.evt_lay1Cursor++
-		if this.evt_lay1Cursor >= this.evt_lay1Size {
-			this.evt_lay1Cursor = 0
-		}
-	}
-
-	this.evt_lastRunCount = this.evt_currRunCount
-}
-
-// 运行一条定时器事件链表, 每次都执行第一个事件, 直到链表为空
-func (this *Thread) runExec(header *DListNode) {
-	for {
-		// 每次得到链表第一个事件(非)
-		n := header.Next
-		if n.IsEmpty() {
-			break
-		}
-
-		d := n.Data.(IEvent)
-
-		// 执行事件, 返回true, 删除这个事件, 返回false表示用户自己处理
-		if d.Exec(this.self) {
-			this.RemoveEvent(d)
-		} else if header.Next == n {
-			// 防止使用者没有删除使用过的事件, 造成死循环, 该事件, 用户要么重新投递到其他链表, 要么删除
-			this.RemoveEvent(d)
-		}
-	}
-}
-
-// 打印事件池现状
-func (this *Thread) PrintAll() {
-
-	fmt.Printf(
-		`粒度:%d
-		粒度移位:%d
-		第一层池容量:%d
-		第一层游标:%d
-		运行次数%d
-		`, evt_gap_time, evt_gap_bit, this.evt_lay1Size, this.evt_lay1Cursor, this.evt_currRunCount)
-
-	for k, v := range this.evt_names {
-		fmt.Println(k, v)
 	}
 }
 
