@@ -156,8 +156,8 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 				px := NewPacket(packet_len, game_session)
 				if px != nil {
 					px.CopyFromPacketReader(&this.packetReader, old_packet_pos+pckS2GSubHeaderSize, uint64(packet_len-pckS2GSubHeaderSize))
-					px.Count = msg_count
-					px.Tgid = m.Tgid
+					px.MsgCount = msg_count
+					px.ToTgid = m.Tgid
 					SendPacket(px)
 				}
 			}
@@ -167,8 +167,8 @@ func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
 				px := NewPacket(packet_len, game_session)
 				if px != nil {
 					px.CopyFromPacketReader(&this.packetReader, old_packet_pos+pckS2GSubHeaderSize, uint64(packet_len-pckS2GSubHeaderSize))
-					px.Count = msg_count
-					px.Tgid = m.Tgid
+					px.MsgCount = msg_count
+					px.ToTgid = m.Tgid
 					SendPacket(px)
 				}
 			}

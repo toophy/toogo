@@ -1,5 +1,9 @@
 package toogo
 
+import (
+	"errors"
+)
+
 const (
 	SessionPacket_C2G   = 0     // 客户端和Gate连接 C端
 	SessionPacket_G2C   = 1     // 客户端和Gate连接 G端
@@ -46,48 +50,169 @@ func (this *PacketReader) GetReadMsg() (msg_id uint16, msg_len uint16, start_pos
 
 // 操作网络封包
 type PacketWriter struct {
-	Stream
+	Stream                 // 数据流
 	LastMsgPos      uint64 // 最近一个消息终止位置
-	MailId          uint32 // 会话邮箱
-	Count           uint16 // 包内消息数
+	ToMailId        uint32 // 会话邮箱
+	MsgCount        uint16 // 包内消息总数(包括尾随消息)
 	MsgID           uint16 // 当前消息ID
 	WritePacketType uint16 // 会话类型
-	Tgid            uint64 // 标记
+	ToTgid          uint64 // 投递目标Tgid
+	lastMsgPos      uint64 // 最近一个完整消息终止位置
+	lastBeginMsgPos uint64 // 最近一个完整消息开始位置
+	subHeaderSize   uint64 // 尾随头Pos
+	subMasterPos    uint64 // 尾随主体Pos
+	subMasterMsgId  uint16 // 尾随主体Id
+	subCount        uint16 // 尾随消息数
+	subLen          uint64 // 尾随数据长度
+	subTgid         uint64 // 尾随消息目标Id
+	subbing         bool   // 尾随中
+	initted         bool   // 被初始化过
+	noTgidHeader    bool   // 没有tgid头的网络封包, 用于客户端通信
 }
 
-// 初始化包
 func (this *PacketWriter) InitWriter(d []byte, pckType uint16, mailId uint32) {
 	this.Init(d)
-	this.Count = 0
-	this.MsgID = 0
 	this.WritePacketType = pckType
 	headerSize := getHeaderSize(this.WritePacketType)
-	this.LastMsgPos = uint64(headerSize)
+	this.lastMsgPos = uint64(headerSize)
 	this.Pos = uint64(headerSize)
-	this.MailId = mailId
+	this.ToMailId = mailId
+
+	if this.WritePacketType == SessionPacket_C2G || this.WritePacketType == SessionPacket_G2C {
+		this.noTgidHeader = true
+	} else {
+		this.noTgidHeader = false
+	}
+
+	this.initted = true
+}
+
+func (this *PacketWriter) Reset(d []byte, pckType uint16, mailId uint32) {
+	this.Init(d)
+	this.WritePacketType = pckType
+	headerSize := getHeaderSize(this.WritePacketType)
+	this.lastMsgPos = uint64(headerSize)
+	this.Pos = uint64(headerSize)
+	this.ToMailId = mailId
+	this.subbing = false
+	if this.WritePacketType == SessionPacket_C2G || this.WritePacketType == SessionPacket_G2C {
+		this.noTgidHeader = true
+	} else {
+		this.noTgidHeader = false
+	}
+
+	if this.initted {
+		this.ToTgid = 0
+		this.MsgCount = 0
+		this.lastMsgPos = 0
+		this.lastBeginMsgPos = 0
+		this.MsgID = 0
+		this.subHeaderSize = 0
+		this.subMasterPos = 0
+		this.subMasterMsgId = 0
+		this.subCount = 0
+		this.subLen = 0
+		this.subTgid = 0
+	} else {
+		this.initted = true
+	}
+}
+
+func (this *PacketWriter) SetsubTgid(id uint64) {
+	if this.noTgidHeader {
+		return
+	}
+
+	if id == this.subTgid {
+		if !this.subbing {
+			this.subHeaderSize = this.Pos
+			this.subMasterPos = this.lastBeginMsgPos
+			this.subCount = 0
+			this.subLen = 0
+			this.subbing = true
+			this.subMasterMsgId = this.MsgID
+			// 让出尾随消息头
+
+			if this.Pos+subMsgHeaderSize < this.MaxLen {
+				this.Pos = this.Pos + subMsgHeaderSize
+				this.WriteUint64(id)
+			} else {
+				panic(errors.New("PacketWriter:SetsubTgid no long"))
+			}
+		}
+	} else {
+		this.subMsgOver()
+		this.subTgid = id
+	}
 }
 
 // 写入消息ID
 func (this *PacketWriter) WriteMsgId(id uint16) {
-	this.MsgID = id
-	this.Pos = this.Pos + msgHeaderSize
+	if this.noTgidHeader {
+		if this.Pos+msgHeaderSize < this.MaxLen {
+			this.MsgID = id
+			this.Pos = this.Pos + msgHeaderSize
+			return
+		}
+	} else {
+		if this.Pos+msgHeaderSize < this.MaxLen {
+			this.MsgID = id
+			this.lastBeginMsgPos = this.Pos
+			this.lastMsgPos = this.Pos
+			this.Pos = this.Pos + msgHeaderSize
+			return
+		}
+	}
+	panic(errors.New("SGPacketWriter:WriteMsgId no long"))
+}
+
+func (this *PacketWriter) subMsgOver() {
+	if this.subbing {
+		// 原来是尾随, 现在要结束尾随
+		if this.subCount > 0 {
+			// 1. 第一个消息的消息Id改写
+			old_pos := this.Pos
+			this.Pos = this.subMasterPos + pckTgidSize
+			this.WriteUint16(this.subMasterMsgId + pckMsgExtern)
+			// 2. 尾随头写入
+			old_pos = this.subHeaderSize
+			this.Pos = this.subHeaderSize
+			this.WriteUint16(uint16(this.subLen))
+			this.WriteUint16(this.subCount)
+			this.Pos = old_pos
+			// 3. 结束掉尾随标记
+		}
+		this.subbing = false
+		this.subLen = 0
+		this.subCount = 0
+	}
 }
 
 // 写入一个消息
 func (this *PacketWriter) WriteMsgOver() {
 	// 当前长度
-	msg_sum_len := uint32(this.Pos - this.LastMsgPos)
+	msg_sum_len := uint32(this.Pos - this.lastBeginMsgPos)
 
 	old_pos := this.Pos
-	this.Pos = this.LastMsgPos
+	this.Pos = this.lastBeginMsgPos
 	this.WriteUint32((uint32(this.MsgID)<<16 | msg_sum_len))
 	this.Pos = old_pos
-	this.LastMsgPos = old_pos
-	this.Count++
+	this.lastMsgPos = old_pos
+	this.MsgCount++
+
+	if !this.noTgidHeader {
+		if this.subbing {
+			this.subCount++
+			this.subLen += uint64(msg_sum_len)
+		}
+	}
 }
 
 // 结束一个封包
 func (this *PacketWriter) PacketWriteOver() {
+
+	this.subMsgOver()
+
 	packet_len := this.Pos
 	token := uint32(0)
 
@@ -98,16 +223,16 @@ func (this *PacketWriter) PacketWriteOver() {
 	case SessionPacket_C2G:
 		this.WriteUint16(uint16(packet_len))
 		this.WriteUint8(uint8(token))
-		this.WriteUint8(uint8(this.Count))
+		this.WriteUint8(uint8(this.MsgCount))
 	case SessionPacket_G2C:
 		this.WriteUint16(uint16(packet_len))
-		this.WriteUint16(this.Count)
+		this.WriteUint16(this.MsgCount)
 	case SessionPacket_G2S:
 		this.WriteUint24(uint32(packet_len))
-		this.WriteUint16(this.Count)
+		this.WriteUint16(this.MsgCount)
 	case SessionPacket_S2G:
 		this.WriteUint24(uint32(packet_len))
-		this.WriteUint16(this.Count)
+		this.WriteUint16(this.MsgCount)
 	}
 
 	this.Pos = old_pos
@@ -118,8 +243,8 @@ func (this *PacketWriter) CopyMsg(d []byte, dLen uint64) bool {
 	defer RecoverCommon(0, "PacketWriter::CopyMsg")
 
 	this.WriteDataEx(d, dLen)
-	this.LastMsgPos = this.LastMsgPos + dLen
-	this.Count++
+	this.lastMsgPos = this.lastMsgPos + dLen
+	this.MsgCount++
 
 	return true
 }
@@ -129,7 +254,7 @@ func (this *PacketWriter) CopyFromPacketReader(r *PacketReader, pos uint64, dLen
 	defer RecoverCommon(0, "PacketWriter::CopyFromPacketReader")
 
 	this.WriteDataEx(r.Data[pos:pos+dLen], dLen)
-	this.LastMsgPos = this.LastMsgPos + dLen
+	this.lastMsgPos = this.lastMsgPos + dLen
 
 	return true
 }
@@ -165,96 +290,3 @@ func (this *PacketWriter) CopyFromPacketReader(r *PacketReader, pos uint64, dLen
 //
 //    先做成一个PacketWriter变异版本, 再封装为一个消息包处理者, 再封装为消息包处理器, 同时为多个目标进行消息包封装,
 //    最后具备发送消息包给对应目标的能力(发送给不同Session)
-
-type SGPacketWriter struct {
-	Stream                  // 数据流
-	ToTgid           uint64 // 投递目标Tgid
-	PacketWriterType uint16 // 会话类型
-	ToMailId         uint16 // 会话邮箱
-	MsgCount         uint16 // 包内消息总数(包括尾随消息)
-	PacketLen        uint16 // 包内数据总长度(所有数据)
-	LastMsgPos       uint16 // 最近一个完整消息终止位置
-	LastBeginMsgPos  uint16 // 最近一个完整消息开始位置
-	CurrMsgId        uint16 // 当前消息Id
-	SubHeaderPos     uint16 // 尾随头Pos
-	SubMasterPos     uint16 // 尾随主体Pos
-	SubMasterMsgId   uint16 // 尾随主体Id
-	SubCount         uint16 // 尾随消息数
-	SubLen           uint16 // 尾随数据长度
-	SubTgid          uint16 // 尾随消息目标Id
-	Subbing          bool   // 尾随中
-}
-
-func (this *SGPacketWriter) Init() {
-
-}
-
-func (this *SGPacketWriter) SetSubTgid(id uint64) bool {
-	if id == this.SubTgid {
-		if !this.Subbing {
-			this.SubHeaderPos = this.Pos
-			this.SubMasterPos = this.LastBeginMsgPos
-			this.SubCount = 0
-			this.SubLen = 0
-			this.Subbing = true
-			this.SubMasterMsgId = this.CurrMsgId
-			// 让出尾随消息头
-
-			if t.Pos+subMsgHeaderSize < t.MaxLen {
-				this.Pos = this.Pos + subMsgHeaderSize
-				return
-			}
-
-			return false
-		}
-	} else {
-		if this.Subbing {
-			// 原来是尾随, 现在要结束尾随
-			if this.SubCount > 0 {
-				// 1. 第一个消息的消息Id改写
-				old_pos := this.Pos
-				this.Pos = this.SubMasterPos + pckTgidSize
-				this.WriteUint16(this.SubMasterMsgId + pckMsgExtern)
-				this.Pos = old_pos
-				// 2. 尾随头写入
-				old_pos = this.SubHeaderPos
-				this.Pos = this.SubHeaderPos
-				this.WriteUint16(this.SubLen)
-				this.WriteUint16(this.SubCount)
-				this.Pos = old_pos
-				// 3. 结束掉尾随标记
-			}
-			this.Subbing = false
-		}
-
-		this.SubTgid = id
-		this.Subbing = false
-	}
-
-	return true
-}
-
-func (this *SGPacketWriter) WriteMsgId(id uint16) {
-
-	if t.Pos+msgHeaderSize < t.MaxLen {
-		this.MsgID = id
-		this.CurrMsgId = id
-		this.Pos = this.Pos + msgHeaderSize
-		return
-	}
-
-	panic(errors.New("SGPacketWriter:WriteMsgId no long"))
-}
-
-// 写入一个消息
-func (this *SGPacketWriter) WriteMsgOver() {
-	// // 当前长度
-	// msg_sum_len := uint32(this.Pos - this.LastMsgPos)
-
-	// old_pos := this.Pos
-	// this.Pos = this.LastMsgPos
-	// this.WriteUint32((uint32(this.MsgID)<<16 | msg_sum_len))
-	// this.Pos = old_pos
-	// this.LastMsgPos = old_pos
-	// this.Count++
-}

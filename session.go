@@ -546,9 +546,9 @@ func SendPacket(p *PacketWriter) bool {
 	x := new(Tmsg_packet)
 	x.Data = p.GetData()
 	x.Len = uint32(p.GetPos())
-	x.Count = uint16(p.Count)
+	x.Count = uint16(p.MsgCount)
 
-	PostThreadMsg(p.MailId, x)
+	PostThreadMsg(p.ToMailId, x)
 
 	return false
 }
