@@ -51,14 +51,13 @@ func (this *PacketReader) GetReadMsg() (msg_id uint16, msg_len uint16, start_pos
 // 操作网络封包
 type PacketWriter struct {
 	Stream                 // 数据流
-	LastMsgPos      uint64 // 最近一个消息终止位置
 	ToMailId        uint32 // 会话邮箱
 	MsgCount        uint16 // 包内消息总数(包括尾随消息)
 	MsgID           uint16 // 当前消息ID
 	WritePacketType uint16 // 会话类型
 	ToTgid          uint64 // 投递目标Tgid
-	lastMsgPos      uint64 // 最近一个完整消息终止位置
-	lastBeginMsgPos uint64 // 最近一个完整消息开始位置
+	lastMsgBeginPos uint64 // 最近一个完整消息开始位置
+	lastMsgEndPos   uint64 // 最近一个完整消息终止位置
 	subHeaderSize   uint64 // 尾随头Pos
 	subMasterPos    uint64 // 尾随主体Pos
 	subMasterMsgId  uint16 // 尾随主体Id
@@ -74,7 +73,8 @@ func (this *PacketWriter) InitWriter(d []byte, pckType uint16, mailId uint32) {
 	this.Init(d)
 	this.WritePacketType = pckType
 	headerSize := getHeaderSize(this.WritePacketType)
-	this.lastMsgPos = uint64(headerSize)
+	this.lastMsgBeginPos = uint64(headerSize)
+	this.lastMsgEndPos = this.lastMsgBeginPos
 	this.Pos = uint64(headerSize)
 	this.ToMailId = mailId
 
@@ -91,7 +91,8 @@ func (this *PacketWriter) Reset(d []byte, pckType uint16, mailId uint32) {
 	this.Init(d)
 	this.WritePacketType = pckType
 	headerSize := getHeaderSize(this.WritePacketType)
-	this.lastMsgPos = uint64(headerSize)
+	this.lastMsgBeginPos = uint64(headerSize)
+	this.lastMsgEndPos = this.lastMsgBeginPos
 	this.Pos = uint64(headerSize)
 	this.ToMailId = mailId
 	this.subbing = false
@@ -104,8 +105,8 @@ func (this *PacketWriter) Reset(d []byte, pckType uint16, mailId uint32) {
 	if this.initted {
 		this.ToTgid = 0
 		this.MsgCount = 0
-		this.lastMsgPos = 0
-		this.lastBeginMsgPos = 0
+		this.lastMsgEndPos = 0
+		this.lastMsgBeginPos = 0
 		this.MsgID = 0
 		this.subHeaderSize = 0
 		this.subMasterPos = 0
@@ -126,7 +127,7 @@ func (this *PacketWriter) SetsubTgid(id uint64) {
 	if id == this.subTgid {
 		if !this.subbing {
 			this.subHeaderSize = this.Pos
-			this.subMasterPos = this.lastBeginMsgPos
+			this.subMasterPos = this.lastMsgBeginPos
 			this.subCount = 0
 			this.subLen = 0
 			this.subbing = true
@@ -157,8 +158,8 @@ func (this *PacketWriter) WriteMsgId(id uint16) {
 	} else {
 		if this.Pos+msgHeaderSize < this.MaxLen {
 			this.MsgID = id
-			this.lastBeginMsgPos = this.Pos
-			this.lastMsgPos = this.Pos
+			this.lastMsgBeginPos = this.Pos
+			this.lastMsgEndPos = this.Pos
 			this.Pos = this.Pos + msgHeaderSize
 			return
 		}
@@ -191,13 +192,13 @@ func (this *PacketWriter) subMsgOver() {
 // 写入一个消息
 func (this *PacketWriter) WriteMsgOver() {
 	// 当前长度
-	msg_sum_len := uint32(this.Pos - this.lastBeginMsgPos)
+	msg_sum_len := uint32(this.Pos - this.lastMsgBeginPos)
 
 	old_pos := this.Pos
-	this.Pos = this.lastBeginMsgPos
+	this.Pos = this.lastMsgBeginPos
 	this.WriteUint32((uint32(this.MsgID)<<16 | msg_sum_len))
 	this.Pos = old_pos
-	this.lastMsgPos = old_pos
+	this.lastMsgEndPos = old_pos
 	this.MsgCount++
 
 	if !this.noTgidHeader {
@@ -243,7 +244,7 @@ func (this *PacketWriter) CopyMsg(d []byte, dLen uint64) bool {
 	defer RecoverCommon(0, "PacketWriter::CopyMsg")
 
 	this.WriteDataEx(d, dLen)
-	this.lastMsgPos = this.lastMsgPos + dLen
+	this.lastMsgEndPos = this.lastMsgEndPos + dLen
 	this.MsgCount++
 
 	return true
@@ -254,7 +255,7 @@ func (this *PacketWriter) CopyFromPacketReader(r *PacketReader, pos uint64, dLen
 	defer RecoverCommon(0, "PacketWriter::CopyFromPacketReader")
 
 	this.WriteDataEx(r.Data[pos:pos+dLen], dLen)
-	this.lastMsgPos = this.lastMsgPos + dLen
+	this.lastMsgEndPos = this.lastMsgEndPos + dLen
 
 	return true
 }
