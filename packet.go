@@ -27,6 +27,7 @@ type PacketReader struct {
 	CurrMsgLen uint16 // 当前消息长度
 	CurrMsgId  uint16 // 当前消息Id
 	Count      uint16 // 包内消息数
+	LinkTgid   uint64 // 关联Tgid
 }
 
 // 初始化包
@@ -51,18 +52,18 @@ func (this *PacketReader) GetReadMsg() (msg_id uint16, msg_len uint16, start_pos
 // 操作网络封包
 type PacketWriter struct {
 	Stream                 // 数据流
-	ToMailId        uint32 // 会话邮箱
-	MsgCount        uint16 // 包内消息总数(包括尾随消息)
-	MsgID           uint16 // 当前消息ID
-	WritePacketType uint16 // 会话类型
-	ToTgid          uint64 // 投递目标Tgid
+	toMailId        uint32 // 会话邮箱
+	writePacketType uint16 // 会话类型
+	toTgid          uint64 // 投递目标Tgid
+	currMsgID       uint16 // 当前消息ID
+	msgCount        uint16 // 包内消息总数(包括尾随消息)
 	lastMsgBeginPos uint64 // 最近一个完整消息开始位置
 	lastMsgEndPos   uint64 // 最近一个完整消息终止位置
 	subHeaderSize   uint64 // 尾随头Pos
 	subMasterPos    uint64 // 尾随主体Pos
 	subMasterMsgId  uint16 // 尾随主体Id
 	subCount        uint16 // 尾随消息数
-	subLen          uint64 // 尾随数据长度
+	subLen          uint64 // 尾随数据长度o
 	subTgid         uint64 // 尾随消息目标Id
 	subbing         bool   // 尾随中
 	initted         bool   // 被初始化过
@@ -71,14 +72,14 @@ type PacketWriter struct {
 
 func (this *PacketWriter) InitWriter(d []byte, pckType uint16, mailId uint32) {
 	this.Init(d)
-	this.WritePacketType = pckType
-	headerSize := getHeaderSize(this.WritePacketType)
+	this.writePacketType = pckType
+	headerSize := getHeaderSize(this.writePacketType)
 	this.lastMsgBeginPos = uint64(headerSize)
 	this.lastMsgEndPos = this.lastMsgBeginPos
 	this.Pos = uint64(headerSize)
-	this.ToMailId = mailId
+	this.toMailId = mailId
 
-	if this.WritePacketType == SessionPacket_C2G || this.WritePacketType == SessionPacket_G2C {
+	if this.writePacketType == SessionPacket_C2G || this.writePacketType == SessionPacket_G2C {
 		this.noTgidHeader = true
 	} else {
 		this.noTgidHeader = false
@@ -89,25 +90,25 @@ func (this *PacketWriter) InitWriter(d []byte, pckType uint16, mailId uint32) {
 
 func (this *PacketWriter) Reset(d []byte, pckType uint16, mailId uint32) {
 	this.Init(d)
-	this.WritePacketType = pckType
-	headerSize := getHeaderSize(this.WritePacketType)
+	this.writePacketType = pckType
+	headerSize := getHeaderSize(this.writePacketType)
 	this.lastMsgBeginPos = uint64(headerSize)
 	this.lastMsgEndPos = this.lastMsgBeginPos
 	this.Pos = uint64(headerSize)
-	this.ToMailId = mailId
+	this.toMailId = mailId
 	this.subbing = false
-	if this.WritePacketType == SessionPacket_C2G || this.WritePacketType == SessionPacket_G2C {
+	if this.writePacketType == SessionPacket_C2G || this.writePacketType == SessionPacket_G2C {
 		this.noTgidHeader = true
 	} else {
 		this.noTgidHeader = false
 	}
 
 	if this.initted {
-		this.ToTgid = 0
-		this.MsgCount = 0
+		this.toTgid = 0
+		this.msgCount = 0
 		this.lastMsgEndPos = 0
 		this.lastMsgBeginPos = 0
-		this.MsgID = 0
+		this.currMsgID = 0
 		this.subHeaderSize = 0
 		this.subMasterPos = 0
 		this.subMasterMsgId = 0
@@ -131,7 +132,7 @@ func (this *PacketWriter) SetsubTgid(id uint64) {
 			this.subCount = 0
 			this.subLen = 0
 			this.subbing = true
-			this.subMasterMsgId = this.MsgID
+			this.subMasterMsgId = this.currMsgID
 			// 让出尾随消息头
 
 			if this.Pos+subMsgHeaderSize < this.MaxLen {
@@ -149,21 +150,15 @@ func (this *PacketWriter) SetsubTgid(id uint64) {
 
 // 写入消息ID
 func (this *PacketWriter) WriteMsgId(id uint16) {
-	if this.noTgidHeader {
-		if this.Pos+msgHeaderSize < this.MaxLen {
-			this.MsgID = id
-			this.Pos = this.Pos + msgHeaderSize
-			return
-		}
-	} else {
-		if this.Pos+msgHeaderSize < this.MaxLen {
-			this.MsgID = id
-			this.lastMsgBeginPos = this.Pos
-			this.lastMsgEndPos = this.Pos
-			this.Pos = this.Pos + msgHeaderSize
-			return
-		}
+
+	if this.Pos+msgHeaderSize < this.MaxLen {
+		this.currMsgID = id
+		this.lastMsgBeginPos = this.Pos
+		this.lastMsgEndPos = this.lastMsgBeginPos
+		this.Pos = this.Pos + msgHeaderSize
+		return
 	}
+
 	panic(errors.New("SGPacketWriter:WriteMsgId no long"))
 }
 
@@ -196,10 +191,10 @@ func (this *PacketWriter) WriteMsgOver() {
 
 	old_pos := this.Pos
 	this.Pos = this.lastMsgBeginPos
-	this.WriteUint32((uint32(this.MsgID)<<16 | msg_sum_len))
+	this.WriteUint32((uint32(this.currMsgID)<<16 | msg_sum_len))
 	this.Pos = old_pos
 	this.lastMsgEndPos = old_pos
-	this.MsgCount++
+	this.msgCount++
 
 	if !this.noTgidHeader {
 		if this.subbing {
@@ -220,20 +215,20 @@ func (this *PacketWriter) PacketWriteOver() {
 	old_pos := this.Pos
 	this.Pos = 0
 
-	switch this.WritePacketType {
+	switch this.writePacketType {
 	case SessionPacket_C2G:
 		this.WriteUint16(uint16(packet_len))
 		this.WriteUint8(uint8(token))
-		this.WriteUint8(uint8(this.MsgCount))
+		this.WriteUint8(uint8(this.msgCount))
 	case SessionPacket_G2C:
 		this.WriteUint16(uint16(packet_len))
-		this.WriteUint16(this.MsgCount)
+		this.WriteUint16(this.msgCount)
 	case SessionPacket_G2S:
 		this.WriteUint24(uint32(packet_len))
-		this.WriteUint16(this.MsgCount)
+		this.WriteUint16(this.msgCount)
 	case SessionPacket_S2G:
 		this.WriteUint24(uint32(packet_len))
-		this.WriteUint16(this.MsgCount)
+		this.WriteUint16(this.msgCount)
 	}
 
 	this.Pos = old_pos
@@ -245,8 +240,7 @@ func (this *PacketWriter) CopyMsg(d []byte, dLen uint64) bool {
 
 	this.WriteDataEx(d, dLen)
 	this.lastMsgEndPos = this.lastMsgEndPos + dLen
-	this.MsgCount++
-
+	this.msgCount++
 	return true
 }
 
@@ -256,7 +250,6 @@ func (this *PacketWriter) CopyFromPacketReader(r *PacketReader, pos uint64, dLen
 
 	this.WriteDataEx(r.Data[pos:pos+dLen], dLen)
 	this.lastMsgEndPos = this.lastMsgEndPos + dLen
-
 	return true
 }
 
