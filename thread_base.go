@@ -29,8 +29,8 @@ type IThread interface {
 	RegistNetMsg(id uint16, f NetMsgFunc)                             // -- 注册网络消息处理函数
 
 	// toogo库私有接口
-	procC2GNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是CG类型
-	procS2GNetPacket(m *Tmsg_packet) bool // -- 响应网络消息包 Session是SG类型
+	procC2GNetPacket(m *Tmsg_packet) bool   // -- 响应网络消息包 Session是CG类型
+	procS2GNetPacketEx(m *Tmsg_packet) bool // -- 响应网络消息包 Session是SG类型
 }
 
 const (

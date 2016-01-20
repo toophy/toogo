@@ -238,9 +238,14 @@ func (this *PacketWriter) PacketWriteOver() {
 func (this *PacketWriter) CopyMsg(d []byte, dLen uint64) bool {
 	defer RecoverCommon(0, "PacketWriter::CopyMsg")
 
+	this.lastMsgBeginPos = this.Pos
 	this.WriteDataEx(d, dLen)
-	this.lastMsgEndPos = this.lastMsgEndPos + dLen
+	this.lastMsgEndPos = this.Pos
 	this.msgCount++
+	if this.subbing {
+		this.subCount++
+		this.subLen += dLen
+	}
 	return true
 }
 
@@ -248,8 +253,14 @@ func (this *PacketWriter) CopyMsg(d []byte, dLen uint64) bool {
 func (this *PacketWriter) CopyFromPacketReader(r *PacketReader, pos uint64, dLen uint64) bool {
 	defer RecoverCommon(0, "PacketWriter::CopyFromPacketReader")
 
+	this.lastMsgBeginPos = this.Pos
 	this.WriteDataEx(r.Data[pos:pos+dLen], dLen)
-	this.lastMsgEndPos = this.lastMsgEndPos + dLen
+	this.lastMsgEndPos = this.Pos
+	this.msgCount++
+	if this.subbing {
+		this.subCount++
+		this.subLen += dLen
+	}
 	return true
 }
 

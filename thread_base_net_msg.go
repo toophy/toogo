@@ -33,6 +33,7 @@ func (this *Thread) procC2GNetPacket(m *Tmsg_packet) (ret bool) {
 	defer RecoverCommon(this.threadId, "Thread::procC2GNetPacket:")
 
 	this.packetReader.InitReader(m.Data, uint16(m.Count))
+	this.packetReader.LinkTgid = m.Tgid
 
 	for i := uint16(0); i < this.packetReader.Count; i++ {
 		old_pos := this.packetReader.GetPos()
@@ -82,113 +83,6 @@ func (this *Thread) procC2GNetPacket(m *Tmsg_packet) (ret bool) {
 
 // 响应SS网络消息包
 // 这个消息包, 里面是子消息包
-func (this *Thread) procS2GNetPacket(m *Tmsg_packet) (ret bool) {
-
-	errMsg := ""
-
-	defer func() {
-		if !ret {
-			if len(errMsg) > 0 {
-				this.LogWarn("Thread::procS2GNetPacket:" + errMsg)
-			}
-			this.self.On_packetError(m.SessionId)
-		}
-	}()
-
-	defer RecoverCommon(this.threadId, "Thread::procS2GNetPacket:")
-
-	this.packetReader.InitReader(m.Data, uint16(m.Count))
-
-	// 包一层消息包
-	//
-	for i := uint16(0); i < m.Count; i++ {
-		// 子消息包头
-		old_packet_pos := this.packetReader.GetPos()
-		packet_len, errPLen := this.packetReader.XReadUint24()
-		msg_count, errPCount := this.packetReader.XReadUint16()
-		targetTgid, errTgid := this.packetReader.XReadUint64()
-		if !errPLen || !errPCount || !errTgid || packet_len <= 0 {
-			errMsg = "读取消息包头失败"
-			return
-		}
-		if targetTgid == 0 {
-			// for gate message
-			for k := uint16(0); k < msg_count; k++ {
-				old_pos := this.packetReader.GetPos()
-				msg_len, errLen := this.packetReader.XReadUint16()
-				msg_id, errId := this.packetReader.XReadUint16()
-				this.packetReader.PreReadMsg(msg_id, msg_len, old_pos)
-
-				if !errLen || !errId {
-					errMsg = "读取消息头失败"
-					return
-				}
-
-				if msg_len < msgHeaderSize || uint64(msg_len) > this.packetReader.GetMaxLen()-old_pos {
-					errMsg = "SG消息长度无效"
-					return
-				}
-
-				if msg_id >= this.netMsgMaxId {
-					errMsg = "消息ID无效"
-					return
-				}
-
-				fc := this.netMsgProc[msg_id]
-				if fc != nil {
-					if !fc(&this.packetReader, m.SessionId) {
-						errMsg = "读取消息体失败"
-						return
-					}
-				} else {
-					if this.netDefault != nil {
-						if !this.netDefault(msg_id, &this.packetReader, m.SessionId) {
-							errMsg = "读取消息体失败"
-							return
-						}
-					} else {
-						errMsg = "消息没有对应处理函数:" + strconv.Itoa(int(msg_id))
-						return
-					}
-				}
-
-				this.packetReader.Seek(old_pos + uint64(msg_len))
-			}
-		} else if Tgid_is_Sid(targetTgid) {
-			game_session := GetSessionIdByTgid(targetTgid)
-			if game_session != 0 {
-				px := NewPacket(packet_len, game_session)
-				if px != nil {
-					px.CopyFromPacketReader(&this.packetReader, old_packet_pos+pckS2GSubHeaderSize, uint64(packet_len-pckS2GSubHeaderSize))
-					px.MsgCount = msg_count
-					px.ToTgid = m.Tgid
-					SendPacket(px)
-				}
-			}
-		} else if Tgid_is_Rid(targetTgid) {
-			game_session := GetSessionIdByTgid(targetTgid)
-			if game_session != 0 {
-				px := NewPacket(packet_len, game_session)
-				if px != nil {
-					px.CopyFromPacketReader(&this.packetReader, old_packet_pos+pckS2GSubHeaderSize, uint64(packet_len-pckS2GSubHeaderSize))
-					px.MsgCount = msg_count
-					px.ToTgid = m.Tgid
-					SendPacket(px)
-				}
-			}
-		} else {
-			// 暂时不支持这些, 丢弃吧
-		}
-
-		this.packetReader.Seek(old_packet_pos + uint64(packet_len))
-	}
-
-	ret = true
-	return
-}
-
-// 响应SS网络消息包
-// 这个消息包, 里面是子消息包
 func (this *Thread) procS2GNetPacketEx(m *Tmsg_packet) (ret bool) {
 
 	errMsg := ""
@@ -207,9 +101,9 @@ func (this *Thread) procS2GNetPacketEx(m *Tmsg_packet) (ret bool) {
 	this.packetReader.InitReader(m.Data, uint16(m.Count))
 
 	subMessages := false
-	var errLen error
-	var errId error
-	var errTgid error
+	var errLen bool
+	var errId bool
+	var errTgid bool
 	var msg_len uint16
 	var msg_id uint16
 	var old_pos uint64
@@ -219,7 +113,6 @@ func (this *Thread) procS2GNetPacketEx(m *Tmsg_packet) (ret bool) {
 	// 包一层消息包
 	//
 	for i := uint16(0); i < m.Count; i++ {
-		// for gate message
 		old_pos = this.packetReader.GetPos()
 		if !subMessages {
 			targetTgid, errTgid = this.packetReader.XReadUint64()
@@ -237,6 +130,7 @@ func (this *Thread) procS2GNetPacketEx(m *Tmsg_packet) (ret bool) {
 		} else {
 			subCount++
 		}
+
 		msg_len, errLen = this.packetReader.XReadUint16()
 		msg_id, errId = this.packetReader.XReadUint16()
 		this.packetReader.PreReadMsg(msg_id, msg_len, old_pos)
@@ -253,8 +147,13 @@ func (this *Thread) procS2GNetPacketEx(m *Tmsg_packet) (ret bool) {
 
 		if msg_id > MaxNetMsgId {
 			// 连续包
-			msg_id = msg_id - MaxNetMsgId
-			subMessages = true
+			if !subMessages {
+				msg_id = msg_id - MaxNetMsgId
+				subMessages = true
+			} else {
+				errMsg = "Sub包内不能嵌入Sub包"
+				return
+			}
 		}
 
 		if msg_id >= this.netMsgMaxId {

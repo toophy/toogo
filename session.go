@@ -163,7 +163,6 @@ func (this *Session) runReader() {
 		case SessionPacket_G2S:
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
-			msg.Tgid = xStream.ReadUint64()
 		case SessionPacket_S2G:
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
@@ -546,9 +545,9 @@ func SendPacket(p *PacketWriter) bool {
 	x := new(Tmsg_packet)
 	x.Data = p.GetData()
 	x.Len = uint32(p.GetPos())
-	x.Count = uint16(p.MsgCount)
+	x.Count = uint16(p.msgCount)
 
-	PostThreadMsg(p.ToMailId, x)
+	PostThreadMsg(p.toMailId, x)
 
 	return false
 }
