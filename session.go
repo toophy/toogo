@@ -157,6 +157,7 @@ func (this *Session) runReader() {
 			msg.Len = uint32(xStream.ReadUint16())
 			msg.Token = uint32(xStream.ReadUint8())
 			msg.Count = uint16(xStream.ReadUint8())
+			LogInfoPost(this.toMailId, "ReadPacketHeader (%d,%d,%d)", msg.Len, msg.Token, msg.Count)
 		case SessionPacket_G2C:
 			msg.Len = uint32(xStream.ReadUint16())
 			msg.Count = uint16(xStream.ReadUint16())
