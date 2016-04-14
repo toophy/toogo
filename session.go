@@ -169,6 +169,12 @@ func (this *Session) runReader() {
 			msg.Count = uint16(xStream.ReadUint16())
 		}
 
+		if msg.Len <= headerSize || msg.Len > 64*1024 {
+			PostThreadMsg(this.toMailId, &Tmsg_net{this.SessionId, "read failed", this.Name,
+				fmt.Sprintf("Net packet len failed : len=%d", msg.Len)})
+			break
+		}
+
 		// 根据 msg.Len 分配一个 缓冲, 并读取 body
 		body_len := msg.Len - headerSize
 		buf := make([]byte, body_len)
