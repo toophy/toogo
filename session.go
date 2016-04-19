@@ -167,6 +167,7 @@ func (this *Session) runReader() {
 		case SessionPacket_S2G:
 			msg.Len = uint32(xStream.ReadUint24())
 			msg.Count = uint16(xStream.ReadUint16())
+			LogInfoPost(this.toMailId, "S2G packet header (%d,%d)", msg.Len, msg.Count)
 		}
 
 		if msg.Len <= headerSize || msg.Len > 64*1024 {
@@ -231,6 +232,7 @@ func (this *Session) runWriter() {
 						return
 					}
 					if uint32(wLen) == t.Len {
+						LogDebugPost(this.toMailId, "runWriter %d", wLen)
 						break
 					}
 					start_pos = wLen
@@ -517,7 +519,7 @@ func NewPacket(l uint32, sessionId uint64) *PacketWriter {
 
 // 创建一个长度的PacketWriter
 func NewPacketEx(l uint32, sessionId uint64, writePacketType uint16) *PacketWriter {
-	defer RecoverCommon(0, "toogo::NewPacket:")
+	defer RecoverCommon(0, "toogo::NewPacketEx:")
 
 	ToogoApp.sessionMutex.RLock()
 	defer ToogoApp.sessionMutex.RUnlock()
@@ -534,7 +536,7 @@ func NewPacketEx(l uint32, sessionId uint64, writePacketType uint16) *PacketWrit
 
 // 创建一个PacketWriter
 func NewPacketX(l uint32, mailId uint32, writePacketType uint16) *PacketWriter {
-	defer RecoverCommon(0, "toogo::NewPacket:")
+	defer RecoverCommon(0, "toogo::NewPacketX:")
 
 	p := new(PacketWriter)
 	d := make([]byte, l)
@@ -554,6 +556,7 @@ func SendPacket(p *PacketWriter) bool {
 	x.Len = uint32(p.GetPos())
 	x.Count = uint16(p.msgCount)
 
+	LogDebugPost(0, "SendPacket toMailId=%d", p.toMailId)
 	PostThreadMsg(p.toMailId, x)
 
 	return false

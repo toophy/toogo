@@ -264,6 +264,10 @@ func (this *PacketWriter) CopyFromPacketReader(r *PacketReader, pos uint64, dLen
 	return true
 }
 
+func (this *PacketWriter) GetToMailId() uint32 {
+	return this.toMailId
+}
+
 // // 大包
 // type PacketBig struct {
 // 	targetWriter map[uint64]map[uint64]uint64 // 目标大包
