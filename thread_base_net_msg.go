@@ -141,7 +141,7 @@ func (this *Thread) procS2GNetPacketEx(m *Tmsg_packet) (ret bool) {
 		}
 
 		if msg_len < msgHeaderSize || uint64(msg_len) > this.packetReader.GetMaxLen()-old_pos {
-			errMsg = "SG消息长度无效"
+			errMsg = "SG消息长度无效:" + strconv.Itoa(int(msg_len))
 			return
 		}
 

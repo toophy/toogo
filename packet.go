@@ -136,7 +136,7 @@ func (this *PacketWriter) SetsubTgid(id uint64) {
 			// 让出尾随消息头
 
 			if this.Pos+subMsgHeaderSize < this.MaxLen {
-				this.Pos = this.Pos + subMsgHeaderSize
+				//this.Pos = this.Pos + subMsgHeaderSize
 				this.WriteUint64(id)
 			} else {
 				panic(errors.New("PacketWriter:SetsubTgid no long"))
@@ -165,13 +165,13 @@ func (this *PacketWriter) WriteMsgId(id uint16) {
 func (this *PacketWriter) subMsgOver() {
 	if this.subbing {
 		// 原来是尾随, 现在要结束尾随
-		if this.subCount > 0 {
+		if this.subCount > 1 {
 			// 1. 第一个消息的消息Id改写
 			old_pos := this.Pos
 			this.Pos = this.subMasterPos + pckTgidSize
 			this.WriteUint16(this.subMasterMsgId + pckMsgExtern)
 			// 2. 尾随头写入
-			old_pos = this.subHeaderSize
+			//old_pos = this.subHeaderSize
 			this.Pos = this.subHeaderSize
 			this.WriteUint16(uint16(this.subLen))
 			this.WriteUint16(this.subCount)
