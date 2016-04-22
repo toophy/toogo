@@ -360,7 +360,15 @@ func delSession(id uint64) {
 	ToogoApp.sessionMutex.Lock()
 	defer ToogoApp.sessionMutex.Unlock()
 
-	if _, ok := ToogoApp.sessions[id]; ok {
+	if s, ok := ToogoApp.sessions[id]; ok {
+		// 别名删除
+		if len(s.Name) > 0 {
+			delete(ToogoApp.sessionNames, s.Name)
+		}
+
+		// Tgid删除
+		delete(ToogoApp.sessionTgid, s.Tgid)
+
 		delete(ToogoApp.sessions, id)
 	}
 }

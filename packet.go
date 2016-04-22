@@ -241,7 +241,6 @@ func (this *PacketWriter) WriteMsgOver() {
 	} else {
 		old_pos := this.Pos
 		this.Pos = this.lastMsgBeginPos
-		println("WriteMsgOver:", msg_sum_len)
 		this.WriteUint16(msg_sum_len)
 		this.WriteUint16(this.currMsgID)
 		this.Pos = old_pos
@@ -249,7 +248,6 @@ func (this *PacketWriter) WriteMsgOver() {
 		this.msgCount++
 		this.subMasterMsgLen += msg_sum_len
 	}
-
 }
 
 // 结束一个封包
