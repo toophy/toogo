@@ -74,11 +74,11 @@ type Thread struct {
 // max_msg_id : 最大网络消息ID
 // heart_time : 心跳间隔(毫秒)
 // lay1_time  : 第一层支持的时间长度(毫秒)
-func (this *Thread) Init_thread(self IThread, id uint32, name string, max_msg_id uint16, heart_time int64, lay1_time uint64) error {
+func (this *Thread) Init_thread(s IThread, id uint32, name string, max_msg_id uint16, heart_time int64, lay1_time uint64) error {
 	if id < Tid_master || id >= Tid_last {
 		return errors.New("[E] 线程ID超出范围 [Tid_master,Tid_last]")
 	}
-	if self == nil {
+	if s == nil {
 		return errors.New("[E] 线程自身指针不能为nil")
 	}
 
@@ -87,6 +87,7 @@ func (this *Thread) Init_thread(self IThread, id uint32, name string, max_msg_id
 	this.heart_time = heart_time * int64(time.Millisecond)
 	this.start_time = time.Now().UnixNano()
 	this.last_time = this.start_time
+	this.self = s
 
 	// 设置当前时间戳(毫秒)
 	this.get_curr_time_count = 1
@@ -105,7 +106,7 @@ func (this *Thread) Init_thread(self IThread, id uint32, name string, max_msg_id
 		return errLog
 	}
 
-	errEventOs := this.InitEventOs(self, lay1_time)
+	errEventOs := this.InitEventOs(s, lay1_time)
 	if errEventOs != nil {
 		return errEventOs
 	}
@@ -132,7 +133,7 @@ func (this *Thread) Run_thread() {
 	EnterThread()
 	go func() {
 		defer LeaveThread()
-		defer RecoverCommon(this.threadId, "Thread::Run_thread:")
+		defer RecoverCommon(this.threadId, "Thread::Run_thread:")()
 
 		this.start_time = time.Now().UnixNano()
 		this.last_time = this.start_time

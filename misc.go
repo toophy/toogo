@@ -107,9 +107,9 @@ func RecoverWrite(flag string) {
 }
 
 // 通用捕捉异常
-func RecoverCommon(mailId uint32, flag string) {
+func RecoverCommon(mailId uint32, flag string) func() {
 	// 捕捉异常
-	defer func() {
+	return func() {
 		if r := recover(); r != nil {
 			switch r.(type) {
 			case error:
@@ -118,5 +118,5 @@ func RecoverCommon(mailId uint32, flag string) {
 				LogWarnPost(mailId, flag+r.(string))
 			}
 		}
-	}()
+	}
 }

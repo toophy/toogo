@@ -33,13 +33,14 @@ type App struct {
 	config         toogoConfig         // 配置信息
 	wg             sync.WaitGroup      // App退出信号组
 	gThreadMsgPool *ThreadMsgPool      // 线程间消息池
+	rootPath       string              // 程序所在的目录
 }
 
 // 应用初始化
 func Run(m IThread) {
 
-	RecoverCommon(0, "App::Run:")
-
+	defer RecoverCommon(0, "App::Run:") ()
+	
 	cfg := &ToogoApp.config
 	ToogoApp.gThreadMsgPool = new(ThreadMsgPool)
 	ToogoApp.gThreadMsgPool.Init(cfg.MsgPoolCount)
@@ -84,4 +85,8 @@ func PostThreadMsg(tid uint32, a IThreadMsg) {
 	n := new(DListNode)
 	n.Init(a)
 	GetThreadMsgs().PushOneMsg(tid, n)
+}
+
+func GetRootPath() string {
+	return ToogoApp.rootPath;
 }

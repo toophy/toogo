@@ -49,8 +49,15 @@ func init() {
 	var iniConfig IniConfig
 	cc, err := iniConfig.parseFile("conf/toogo.conf")
 	if err != nil {
-		fmt.Println("Can not find conf/toogo.conf")
-		os.Exit(1)
+		cc, err = iniConfig.parseFile("bin/conf/toogo.conf")
+		if err != nil {
+			fmt.Println("Can not find conf/toogo.conf")
+			os.Exit(1)
+		} else {
+			ToogoApp.rootPath = "bin/"
+		}
+	} else {
+		ToogoApp.rootPath = ""
 	}
 
 	cfg := &ToogoApp.config

@@ -282,7 +282,7 @@ func (this *PacketWriter) PacketWriteOver() {
 
 // 拷贝定长消息
 func (this *PacketWriter) CopyFromPacketReader(count uint16, r *PacketReader, pos uint64, dLen uint64) bool {
-	defer RecoverCommon(0, "PacketWriter::CopyFromPacketReader")
+	defer RecoverCommon(0, "PacketWriter::CopyFromPacketReader")()
 
 	this.lastMsgBeginPos = this.Pos
 	this.WriteDataEx(r.Data[pos:pos+dLen], dLen)
@@ -293,7 +293,7 @@ func (this *PacketWriter) CopyFromPacketReader(count uint16, r *PacketReader, po
 
 // 拷贝定长消息
 func (this *PacketWriter) CopyFromPacketReaderEx(count uint16, msgId uint16, r *PacketReader, pos uint64, dLen uint64) bool {
-	defer RecoverCommon(0, "PacketWriter::CopyFromPacketReaderEx")
+	defer RecoverCommon(0, "PacketWriter::CopyFromPacketReaderEx")()
 	msgLen := uint16(msgHeaderSize + dLen)
 	this.lastMsgBeginPos = this.Pos
 	this.WriteUint16(msgLen)
@@ -306,7 +306,7 @@ func (this *PacketWriter) CopyFromPacketReaderEx(count uint16, msgId uint16, r *
 
 // 拷贝定长消息
 func (this *PacketWriter) CopyFromPacketReaderEx2(count uint16, msgId uint16, tgid uint64, r *PacketReader, pos uint64, dLen uint64) bool {
-	defer RecoverCommon(0, "PacketWriter::CopyFromPacketReaderEx2")
+	defer RecoverCommon(0, "PacketWriter::CopyFromPacketReaderEx2")()
 	msgLen := uint16(msgHeaderSize + pckTgidSize + dLen)
 	this.lastMsgBeginPos = this.Pos
 	this.WriteUint16(msgLen)
